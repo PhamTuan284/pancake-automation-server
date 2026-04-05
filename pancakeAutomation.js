@@ -91,6 +91,11 @@ function normalizeName(value) {
   );
 }
 
+/** Same as normalizeName but no spaces — matches "Tran Thuy Linh" ↔ "TranThuyLinh" on POS. */
+function normalizeNameKey(value) {
+  return normalizeName(value).replace(/\s+/g, '');
+}
+
 function normalizePhone(value) {
   if (value == null) return '';
   return String(value).replace(/\D+/g, '');
@@ -99,15 +104,19 @@ function normalizePhone(value) {
 function findByBuyerName(invoiceRows, rowText) {
   const rowNorm = normalizeName(rowText);
   if (!rowNorm) return null;
+  const rowCompact = rowNorm.replace(/\s+/g, '');
   const rowTrim = String(rowText).trim();
   const rowLc = localeLower(rowTrim);
+  const rowLcCompact = rowLc.replace(/\s+/g, '');
 
   return (
     invoiceRows.find((r) => {
       const nameNorm = normalizeName(r.buyerName);
       if (!nameNorm) return false;
+      const nameCompact = nameNorm.replace(/\s+/g, '');
       const buyerTrim = String(r.buyerName).trim();
       const buyerLc = localeLower(buyerTrim);
+      const buyerLcCompact = buyerLc.replace(/\s+/g, '');
 
       if (
         rowNorm === nameNorm ||
@@ -117,8 +126,23 @@ function findByBuyerName(invoiceRows, rowText) {
         return true;
       }
 
+      if (
+        rowCompact === nameCompact ||
+        rowCompact.includes(nameCompact) ||
+        nameCompact.includes(rowCompact)
+      ) {
+        return true;
+      }
+
       // Case-insensitive substring match on raw text (row often includes phone, extra words).
       if (rowLc.includes(buyerLc) || buyerLc.includes(rowLc)) {
+        return true;
+      }
+
+      if (
+        rowLcCompact.includes(buyerLcCompact) ||
+        buyerLcCompact.includes(rowLcCompact)
+      ) {
         return true;
       }
 
@@ -127,6 +151,15 @@ function findByBuyerName(invoiceRows, rowText) {
         if (
           rowTrim.localeCompare(buyerTrim, 'vi', { sensitivity: 'base' }) ===
           0
+        ) {
+          return true;
+        }
+        if (
+          rowTrim
+            .replace(/\s+/g, '')
+            .localeCompare(buyerTrim.replace(/\s+/g, ''), 'vi', {
+              sensitivity: 'base',
+            }) === 0
         ) {
           return true;
         }
@@ -622,7 +655,9 @@ async function tryFillInvoiceIdFieldHeuristic(browser, value) {
 }
 
 async function processInvoicesByBuyerName(browser, invoiceRows) {
-  const processed = new Set(loadFilledInvoiceKeys());
+  const processed = new Set(
+    loadFilledInvoiceKeys().map((k) => normalizeNameKey(String(k)))
+  );
   if (processed.size > 0) {
     console.log(
       `[filled] Skipping ${processed.size} row(s) from previous runs (filledInvoices.json)`
@@ -653,7 +688,7 @@ async function processInvoicesByBuyerName(browser, invoiceRows) {
       for (const row of rows) {
         const rawText = await row.getText();
         const rowText = rawText ? rawText.trim() : '';
-        const key = normalizeName(rowText);
+        const key = normalizeNameKey(rowText);
         if (!key) {
           // Empty / non-textual row, skip without marking processed.
           continue;
