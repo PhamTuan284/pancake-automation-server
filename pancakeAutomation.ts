@@ -23,6 +23,27 @@ const POS_HOME_URL = 'https://pos.pancake.vn/';
 /** Successful POS login lands here; `getUrl()` may include query/hash. */
 const POS_DASHBOARD_URL_SNIPPET = 'pos.pancake.vn/dashboard';
 
+/** Docker / Linux server: no X11 → headless. Override with PANCAKE_HEADLESS=0. */
+function useHeadlessChrome(): boolean {
+  const v = String(process.env.PANCAKE_HEADLESS || '')
+    .toLowerCase()
+    .trim();
+  if (v === '0' || v === 'false' || v === 'no') return false;
+  if (v === '1' || v === 'true' || v === 'yes') return true;
+  if (process.platform === 'linux' && !process.env.DISPLAY) return true;
+  return false;
+}
+
+function chromeBinaryFromEnv(): string | undefined {
+  const p = (
+    process.env.CHROME_BIN ||
+    process.env.GOOGLE_CHROME_BIN ||
+    process.env.PUPPETEER_EXECUTABLE_PATH ||
+    ''
+  ).trim();
+  return p || undefined;
+}
+
 const FILLED_INVOICES_FILE = path.join(__dirname, 'filledInvoices.json');
 
 /** Row keys we already filled + saved (same normalization as in-run `processed`). */
@@ -240,11 +261,74 @@ async function startChromeDriver(): Promise<{
   child: ChildProcess;
 }> {
   const port = await getFreeTcpPort();
+  let stderrLog = '';
   const child = spawn(chromedriver.path, [`--port=${port}`], {
-    stdio: 'ignore',
+    stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   });
-  await waitForChromeDriverStatus(port);
+  child.stderr?.on('data', (c: Buffer) => {
+    stderrLog += c.toString();
+    if (stderrLog.length > 12000) stderrLog = stderrLog.slice(-6000);
+  });
+  child.stdout?.on('data', (c: Buffer) => {
+    const s = c.toString();
+    if (/error|fatal|cannot|failed/i.test(s)) stderrLog += s;
+  });
+
+  let driverReady = false;
+  const timeoutMs =
+    Number(process.env.PANCAKE_CHROMEDRIVER_WAIT_MS) || 45000;
+  const failEarly = new Promise<never>((_, reject) => {
+    child.once('error', (e) => {
+      if (!driverReady) {
+        reject(
+          new Error(
+            `ChromeDriver spawn failed: ${e.message}. Is chromedriver on PATH or installed via npm?`
+          )
+        );
+      }
+    });
+    child.once('exit', (code, signal) => {
+      if (driverReady) return;
+      if (code !== 0 && code !== null) {
+        const tail = stderrLog.trim().slice(-900);
+        reject(
+          new Error(
+            `ChromeDriver exited with code ${code}${signal ? ` (${signal})` : ''}. ` +
+              (tail
+                ? `Output: ${tail}`
+                : 'Install Google Chrome or Chromium in the container. Debian/Ubuntu: apt install chromium chromium-driver (or google-chrome-stable). Set CHROME_BIN to the browser binary if it is non-standard.')
+          )
+        );
+      }
+    });
+  });
+
+  try {
+    await Promise.race([
+      waitForChromeDriverStatus(port, timeoutMs),
+      failEarly,
+    ]);
+    driverReady = true;
+  } catch (e) {
+    try {
+      child.kill('SIGKILL');
+    } catch {
+      /* ignore */
+    }
+    const tail = stderrLog.trim().slice(-900);
+    const base = e instanceof Error ? e.message : String(e);
+    if (
+      tail &&
+      base.includes('ChromeDriver not ready') &&
+      !base.includes(tail.slice(0, 40))
+    ) {
+      throw new Error(
+        `${base}\nChromeDriver log (last chars): ${tail}`
+      );
+    }
+    throw e;
+  }
   return { port, child };
 }
 
@@ -980,6 +1064,28 @@ export async function runPancakeFlow() {
   const { port, child } = await startChromeDriver();
   driverChild = child;
 
+  const headless = useHeadlessChrome();
+  const chromeBin = chromeBinaryFromEnv();
+  const chromeArgs = [
+    '--disable-gpu',
+    '--no-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-extensions',
+    '--no-first-run',
+    '--incognito',
+  ];
+  if (headless) {
+    chromeArgs.push('--headless=new', '--window-size=1920,1080');
+  } else {
+    chromeArgs.push('--start-maximized');
+  }
+  if (headless) {
+    console.log(
+      '[automation] Headless Chrome (PANCAKE_HEADLESS or Linux without DISPLAY). CHROME_BIN=' +
+        (chromeBin || '(default search)')
+    );
+  }
+
   let browser: WdioBrowser | undefined;
   try {
     browser = await remote({
@@ -989,16 +1095,8 @@ export async function runPancakeFlow() {
       capabilities: {
         browserName: 'chrome',
         'goog:chromeOptions': {
-          args: [
-            '--start-maximized',
-            '--disable-gpu',
-            '--no-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-extensions',
-            '--no-first-run',
-            // Avoid restoring last session (e.g. pos.pancake.vn) as the first visible page
-            '--incognito',
-          ],
+          ...(chromeBin ? { binary: chromeBin } : {}),
+          args: chromeArgs,
         },
       },
       // Retries here each open a new browser session — keep low once ChromeDriver is ready.
@@ -1006,10 +1104,12 @@ export async function runPancakeFlow() {
       connectionRetryTimeout: 15000,
     });
 
-    try {
-      await browser.maximizeWindow();
-    } catch {
-      /* some environments ignore maximize */
+    if (!headless) {
+      try {
+        await browser.maximizeWindow();
+      } catch {
+        /* some environments ignore maximize */
+      }
     }
 
     await loginToPancake(browser);
