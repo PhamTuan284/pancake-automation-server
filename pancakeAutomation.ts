@@ -1066,6 +1066,11 @@ export async function runPancakeFlow() {
 
   const headless = useHeadlessChrome();
   const chromeBin = chromeBinaryFromEnv();
+  console.log(
+    `[automation] Chrome config: headless=${headless ? 'true' : 'false'}, CHROME_BIN=${
+      chromeBin || '(default search)'
+    }`
+  );
   const chromeArgs = [
     '--disable-gpu',
     '--no-sandbox',
@@ -1081,8 +1086,7 @@ export async function runPancakeFlow() {
   }
   if (headless) {
     console.log(
-      '[automation] Headless Chrome (PANCAKE_HEADLESS or Linux without DISPLAY). CHROME_BIN=' +
-        (chromeBin || '(default search)')
+      '[automation] Headless Chrome enabled (PANCAKE_HEADLESS or Linux without DISPLAY).'
     );
   }
 
