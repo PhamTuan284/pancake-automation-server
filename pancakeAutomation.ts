@@ -1029,6 +1029,35 @@ async function findVisibleInAnyFrame(
   return null;
 }
 
+async function findPhoneInput(browser: WdioBrowser): Promise<WdioElement | null> {
+  const phoneSelectors = [
+    'input[type="tel"]',
+    'input[type="email"]',
+    'input[name="phone"]',
+    'input[name="email"]',
+    'input[name="username"]',
+    'input[autocomplete="username"]',
+    'input[autocomplete="tel"]',
+    'input[autocomplete="email"]',
+    'input[type="text"]',
+  ];
+  for (const sel of phoneSelectors) {
+    const el = await findVisibleInAnyFrame(browser, sel);
+    if (el) return el;
+  }
+  await browser.switchToFrame(null);
+  const inputs = await browser.$$(
+    'input[type="text"], input[type="tel"], input[type="email"]'
+  );
+  for (const el of inputs) {
+    if (await el.isDisplayed()) {
+      const t = await el.getAttribute('type');
+      if (t !== 'password') return el;
+    }
+  }
+  return null;
+}
+
 /**
  * Login flow with fallback:
  * - If already logged in (dashboard), skip form and go to e-invoices.
@@ -1058,38 +1087,17 @@ async function loginToPancake(browser: WdioBrowser) {
     );
   }
 
-  const phoneSelectors = [
-    'input[type="tel"]',
-    'input[type="email"]',
-    'input[name="phone"]',
-    'input[name="email"]',
-    'input[name="username"]',
-    'input[autocomplete="username"]',
-    'input[autocomplete="tel"]',
-    'input[autocomplete="email"]',
-    'input[type="text"]',
-  ];
-  let phoneEl: WdioElement | null = null;
-  for (const sel of phoneSelectors) {
-    const el = await findVisibleInAnyFrame(browser, sel);
-    if (el) {
-      phoneEl = el;
-      break;
-    }
-  }
+  let phoneEl: WdioElement | null = await findPhoneInput(browser);
   if (!phoneEl) {
-    await browser.switchToFrame(null);
-    const inputs = await browser.$$(
-      'input[type="text"], input[type="tel"], input[type="email"]'
-    );
-    for (const el of inputs) {
-      if (await el.isDisplayed()) {
-        const t = await el.getAttribute('type');
-        if (t !== 'password') {
-          phoneEl = el;
-          break;
-        }
-      }
+    // Some variants show only a top-nav login link/button; open it then retry.
+    const clickedLogin =
+      (await clickElementContaining(browser, 'Đăng nhập')) ||
+      (await clickElementContaining(browser, 'Đăng Nhập')) ||
+      (await clickElementContaining(browser, 'Login')) ||
+      (await clickElementContaining(browser, 'Log in'));
+    if (clickedLogin) {
+      await browser.pause(2200);
+      phoneEl = await findPhoneInput(browser);
     }
   }
   if (!phoneEl) {
