@@ -1111,9 +1111,17 @@ async function loginToPancake(browser: WdioBrowser) {
   const homeUrl = process.env.PANCAKE_POS_HOME_URL || POS_HOME_URL;
   const candidates = loginUrlCandidates(homeUrl);
   let phoneEl: WdioElement | null = null;
+  const navErrors: string[] = [];
   for (const u of candidates) {
-    await browser.url(u);
-    await browser.pause(2400);
+    try {
+      await browser.url(u);
+      await browser.pause(2400);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      navErrors.push(`${u} -> ${msg}`);
+      console.warn(`[login] Could not open ${u}: ${msg}`);
+      continue;
+    }
     const currentUrl = await browser.getUrl();
     if (currentUrl.includes(POS_DASHBOARD_URL_SNIPPET)) {
       console.log('[login] Dashboard already detected; skipping login form.');
@@ -1143,6 +1151,9 @@ async function loginToPancake(browser: WdioBrowser) {
   }
 
   if (!phoneEl) {
+    if (navErrors.length > 0) {
+      console.warn(`[login-debug] url navigation errors: ${navErrors.join(' || ')}`);
+    }
     await logLoginCandidates(browser);
     await captureLoginDebugArtifacts(
       browser,
