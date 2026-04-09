@@ -959,7 +959,9 @@ async function clickElementContaining(browser: WdioBrowser, text: string) {
   return false;
 }
 
-async function waitForDashboardAfterLogin(browser: WdioBrowser) {
+async function waitForDashboardAfterLogin(
+  browser: WdioBrowser
+): Promise<boolean> {
   const timeoutMs = Number(process.env.PANCAKE_DASHBOARD_WAIT_MS) || 120000;
   const pollMs = Number(process.env.PANCAKE_DASHBOARD_POLL_MS) || 1500;
   try {
@@ -971,7 +973,7 @@ async function waitForDashboardAfterLogin(browser: WdioBrowser) {
         timeoutMsg: `Login did not redirect to https://pos.pancake.vn/dashboard within ${timeoutMs}ms`,
       }
     );
-    return;
+    return true;
   } catch {
     // Some flows stay on account.pancake.vn but still hold a valid session.
     // Try opening the target page directly before failing hard.
@@ -982,11 +984,12 @@ async function waitForDashboardAfterLogin(browser: WdioBrowser) {
       console.log(
         '[login] Dashboard redirect missed; direct navigation to e-invoices succeeded.'
       );
-      return;
+      return true;
     }
-    throw new Error(
-      `Login did not redirect to dashboard and direct invoice navigation failed (current URL: ${afterDirectNav}).`
+    console.warn(
+      `[login] Dashboard redirect missed and default direct e-invoice nav failed (current URL: ${afterDirectNav}). Continuing with URL discovery.`
     );
+    return false;
   }
 }
 
@@ -1286,7 +1289,14 @@ async function loginToPancake(browser: WdioBrowser): Promise<string> {
   }
   await loginBtn.click();
 
-  await waitForDashboardAfterLogin(browser);
+  const dashboardOrDefaultInvoiceReached =
+    await waitForDashboardAfterLogin(browser);
+  if (!dashboardOrDefaultInvoiceReached) {
+    await captureLoginDebugArtifacts(
+      browser,
+      'Dashboard redirect + default e-invoice URL fallback both failed'
+    );
+  }
 
   return resolveWorkingInvoiceUrl(browser);
 }
