@@ -960,14 +960,33 @@ async function clickElementContaining(browser: WdioBrowser, text: string) {
 
 async function waitForDashboardAfterLogin(browser: WdioBrowser) {
   const timeoutMs = Number(process.env.PANCAKE_DASHBOARD_WAIT_MS) || 120000;
-  await browser.waitUntil(
-    async () => (await browser.getUrl()).includes(POS_DASHBOARD_URL_SNIPPET),
-    {
-      timeout: timeoutMs,
-      interval: 400,
-      timeoutMsg: `Login did not redirect to https://pos.pancake.vn/dashboard within ${timeoutMs}ms`,
+  const pollMs = Number(process.env.PANCAKE_DASHBOARD_POLL_MS) || 1500;
+  try {
+    await browser.waitUntil(
+      async () => (await browser.getUrl()).includes(POS_DASHBOARD_URL_SNIPPET),
+      {
+        timeout: timeoutMs,
+        interval: pollMs,
+        timeoutMsg: `Login did not redirect to https://pos.pancake.vn/dashboard within ${timeoutMs}ms`,
+      }
+    );
+    return;
+  } catch {
+    // Some flows stay on account.pancake.vn but still hold a valid session.
+    // Try opening the target page directly before failing hard.
+    await browser.url(INVOICE_URL);
+    await browser.pause(1800);
+    const afterDirectNav = await browser.getUrl();
+    if (afterDirectNav.includes('/e-invoices')) {
+      console.log(
+        '[login] Dashboard redirect missed; direct navigation to e-invoices succeeded.'
+      );
+      return;
     }
-  );
+    throw new Error(
+      `Login did not redirect to dashboard and direct invoice navigation failed (current URL: ${afterDirectNav}).`
+    );
+  }
 }
 
 async function captureLoginDebugArtifacts(
@@ -1235,10 +1254,12 @@ export async function runPancakeFlow() {
 
   let browser: WdioBrowser | undefined;
   try {
+    const wdioLogLevel = (process.env.WDIO_LOG_LEVEL || 'warn').trim();
     browser = await remote({
       hostname: 'localhost',
       port,
       path: '/',
+      logLevel: wdioLogLevel as 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'silent',
       capabilities: {
         browserName: 'chrome',
         'goog:chromeOptions': {
