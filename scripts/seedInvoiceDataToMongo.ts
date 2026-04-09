@@ -6,12 +6,15 @@
  *
  * Or set MONGODB_URI in .env
  */
-const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+import path from 'path';
+import dotenv from 'dotenv';
+import fs from 'fs';
+import mongoose from 'mongoose';
+import { normalizeInvoiceRow } from '../invoiceExcel';
+import InvoiceClient from '../models/InvoiceClient';
+import type { InvoiceRow } from '../types/invoice';
 
-const fs = require('fs');
-const mongoose = require('mongoose');
-const { normalizeInvoiceRow } = require('../invoiceExcel');
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const uri = String(
   process.env.MONGODB_URI || process.env.MONGO_URL || ''
@@ -27,14 +30,15 @@ if (!fs.existsSync(jsonPath)) {
   process.exit(1);
 }
 
-const raw = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+const raw = JSON.parse(fs.readFileSync(jsonPath, 'utf8')) as unknown;
 const rows = Array.isArray(raw) ? raw : [];
 
 async function main() {
   await mongoose.connect(uri, { serverSelectionTimeoutMS: 15000 });
-  const InvoiceClient = require('../models/InvoiceClient');
   await InvoiceClient.deleteMany({});
-  const normalized = rows.map((r) => normalizeInvoiceRow(r || {}));
+  const normalized = rows.map((r) =>
+    normalizeInvoiceRow(r as Partial<InvoiceRow>)
+  );
   if (normalized.length) {
     await InvoiceClient.insertMany(
       normalized.map((row, i) => ({ ...row, order: i }))

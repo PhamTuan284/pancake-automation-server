@@ -1,13 +1,15 @@
-const express = require('express');
-const cors = require('cors');
-const multer = require('multer');
-const { runPancakeFlow } = require('./pancakeAutomation');
-const {
+import express from 'express';
+import cors from 'cors';
+import multer from 'multer';
+import http from 'http';
+import { runPancakeFlow } from './pancakeAutomation';
+import {
   parseExcelBuffer,
   saveInvoiceDataToDisk,
   loadInvoiceDataNormalized,
   normalizeInvoiceRow,
-} = require('./invoiceExcel');
+} from './invoiceExcel';
+import type { InvoiceRow } from './types/invoice';
 
 const app = express();
 app.use(cors());
@@ -43,13 +45,15 @@ app.get('/invoice-data', (_req, res) => {
  */
 app.put('/invoice-data', (req, res) => {
   try {
-    const body = req.body;
+    const body = req.body as { rows?: unknown[] } | undefined;
     if (!body || !Array.isArray(body.rows)) {
       return res
         .status(400)
         .json({ error: 'Cần JSON dạng { "rows": [ ... ] }' });
     }
-    const normalized = body.rows.map((r) => normalizeInvoiceRow(r || {}));
+    const normalized = body.rows.map((r) =>
+      normalizeInvoiceRow(r as Partial<InvoiceRow>)
+    );
     for (let i = 0; i < normalized.length; i++) {
       const r = normalized[i];
       if (!r.buyerName && !r.operationName) {
@@ -72,7 +76,7 @@ app.post('/upload-invoice-excel', (req, res) => {
       return res.status(400).json({ error: multerErr.message || 'Upload lỗi' });
     }
     try {
-      if (!req.file || !req.file.buffer) {
+      if (!req.file?.buffer) {
         return res.status(400).json({ error: 'Vui lòng chọn file Excel' });
       }
       const data = parseExcelBuffer(req.file.buffer);
@@ -86,12 +90,13 @@ app.post('/upload-invoice-excel', (req, res) => {
       res.json({ ok: true, count: data.length });
     } catch (err) {
       console.error(err);
-      res.status(400).json({ error: err.message || 'Không đọc được file Excel' });
+      const message = err instanceof Error ? err.message : 'Không đọc được file Excel';
+      res.status(400).json({ error: message });
     }
   });
 });
 
-app.post('/run-einvoice-automation', async (req, res) => {
+app.post('/run-einvoice-automation', async (_req, res) => {
   if (running) {
     return res.status(409).json({ error: 'Automation already running' });
   }
@@ -110,8 +115,6 @@ app.post('/run-einvoice-automation', async (req, res) => {
 app.get('/health', (_req, res) => {
   res.json({ ok: true, automationRunning: running });
 });
-
-const http = require('http');
 
 /** Default 4001 so dev works when another app already uses 4000; override with PORT. */
 const preferredPort = Number(process.env.PORT) || 4001;
@@ -133,7 +136,7 @@ server.on('listening', () => {
   }
 });
 
-server.on('error', (err) => {
+server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code !== 'EADDRINUSE') {
     console.error(err);
     process.exit(1);

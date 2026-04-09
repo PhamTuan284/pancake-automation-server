@@ -1,11 +1,17 @@
-const { remote } = require('webdriverio');
-const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '.env') });
-const fs = require('fs');
-const http = require('http');
-const net = require('net');
+import { remote } from 'webdriverio';
+import path from 'path';
+import dotenv from 'dotenv';
+import fs from 'fs';
+import http from 'http';
+import net from 'net';
+import { spawn, type ChildProcess } from 'child_process';
+import chromedriver from 'chromedriver';
+import type { InvoiceRow } from './types/invoice';
 
-const chromedriver = require('chromedriver');
+dotenv.config({ path: path.join(__dirname, '.env') });
+
+type WdioBrowser = Awaited<ReturnType<typeof remote>>;
+type WdioElement = Awaited<ReturnType<WdioBrowser['$']>>;
 
 const INVOICE_URL =
   'https://pos.pancake.vn/shop/1942925579/e-invoices';
@@ -16,26 +22,27 @@ const POS_HOME_URL = 'https://pos.pancake.vn/';
 /** Successful POS login lands here; `getUrl()` may include query/hash. */
 const POS_DASHBOARD_URL_SNIPPET = 'pos.pancake.vn/dashboard';
 
-function loadInvoiceData() {
+function loadInvoiceData(): InvoiceRow[] {
   const p = path.join(__dirname, 'invoiceData.json');
   const raw = fs.readFileSync(p, 'utf8');
-  return JSON.parse(raw);
+  const data = JSON.parse(raw) as unknown;
+  return Array.isArray(data) ? (data as InvoiceRow[]) : [];
 }
 
 const FILLED_INVOICES_FILE = path.join(__dirname, 'filledInvoices.json');
 
 /** Row keys we already filled + saved (same normalization as in-run `processed`). */
-function loadFilledInvoiceKeys() {
+function loadFilledInvoiceKeys(): string[] {
   try {
     if (!fs.existsSync(FILLED_INVOICES_FILE)) {
       return [];
     }
-    const j = JSON.parse(fs.readFileSync(FILLED_INVOICES_FILE, 'utf8'));
+    const j = JSON.parse(fs.readFileSync(FILLED_INVOICES_FILE, 'utf8')) as unknown;
     if (Array.isArray(j)) {
-      return j.filter(Boolean);
+      return j.filter(Boolean).map(String);
     }
-    if (j && Array.isArray(j.keys)) {
-      return j.keys.filter(Boolean);
+    if (j && typeof j === 'object' && Array.isArray((j as { keys?: unknown }).keys)) {
+      return (j as { keys: unknown[] }).keys.filter(Boolean).map(String);
     }
     return [];
   } catch {
@@ -43,7 +50,7 @@ function loadFilledInvoiceKeys() {
   }
 }
 
-function persistFilledInvoiceKey(key) {
+function persistFilledInvoiceKey(key: string | undefined | null) {
   if (!key) {
     return;
   }
@@ -68,7 +75,7 @@ function persistFilledInvoiceKey(key) {
 }
 
 /** Lowercase for matching; prefer vi-VN so Vietnamese casing rules apply when available. */
-function localeLower(s) {
+function localeLower(s: unknown) {
   const str = String(s);
   try {
     return str.toLocaleLowerCase('vi-VN');
@@ -77,7 +84,7 @@ function localeLower(s) {
   }
 }
 
-function normalizeName(value) {
+function normalizeName(value: unknown) {
   if (value == null) return '';
   // NFKC: unify compatibility characters; then strip accents; collapse spaces; case-fold.
   return localeLower(
@@ -92,16 +99,16 @@ function normalizeName(value) {
 }
 
 /** Same as normalizeName but no spaces — matches "Tran Thuy Linh" ↔ "TranThuyLinh" on POS. */
-function normalizeNameKey(value) {
+function normalizeNameKey(value: unknown) {
   return normalizeName(value).replace(/\s+/g, '');
 }
 
-function normalizePhone(value) {
+function normalizePhone(value: unknown) {
   if (value == null) return '';
   return String(value).replace(/\D+/g, '');
 }
 
-function findByBuyerName(invoiceRows, rowText) {
+function findByBuyerName(invoiceRows: InvoiceRow[], rowText: string) {
   const rowNorm = normalizeName(rowText);
   if (!rowNorm) return null;
   const rowCompact = rowNorm.replace(/\s+/g, '');
@@ -174,7 +181,7 @@ function findByBuyerName(invoiceRows, rowText) {
   );
 }
 
-function findByPhone(invoiceRows, phoneRaw) {
+function findByPhone(invoiceRows: InvoiceRow[], phoneRaw: string) {
   const phone = normalizePhone(phoneRaw);
   if (!phone) return null;
   return (
@@ -183,26 +190,32 @@ function findByPhone(invoiceRows, phoneRaw) {
 }
 
 /** Avoid binding to a stale ChromeDriver from a previous crashed run. */
-function getFreeTcpPort() {
+function getFreeTcpPort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const s = net.createServer();
     s.listen(0, '127.0.0.1', () => {
       const addr = s.address();
-      const p = typeof addr === 'object' && addr ? addr.port : null;
+      const p =
+        typeof addr === 'object' && addr !== null && 'port' in addr
+          ? (addr as net.AddressInfo).port
+          : null;
       s.close(() => (p != null ? resolve(p) : reject(new Error('No port'))));
     });
     s.on('error', reject);
   });
 }
 
-function waitForChromeDriverStatus(port, timeoutMs = 25000) {
+function waitForChromeDriverStatus(
+  port: number,
+  timeoutMs = 25000
+): Promise<void> {
   const start = Date.now();
   return new Promise((resolve, reject) => {
     function ping() {
       const req = http.get(`http://127.0.0.1:${port}/status`, (res) => {
         res.resume();
         if (res.statusCode === 200) {
-          resolve();
+          resolve(undefined);
           return;
         }
         schedule();
@@ -228,9 +241,11 @@ function waitForChromeDriverStatus(port, timeoutMs = 25000) {
  * Start ChromeDriver on a free port and return { port, child }.
  * Caller must kill child on exit.
  */
-async function startChromeDriver() {
+async function startChromeDriver(): Promise<{
+  port: number;
+  child: ChildProcess;
+}> {
   const port = await getFreeTcpPort();
-  const { spawn } = require('child_process');
   const child = spawn(chromedriver.path, [`--port=${port}`], {
     stdio: 'ignore',
     windowsHide: true,
@@ -240,7 +255,7 @@ async function startChromeDriver() {
 }
 
 /** XPath string literal (handles embedded ' for XPath 1.0). */
-function xpathStringLiteral(s) {
+function xpathStringLiteral(s: unknown) {
   const str = String(s);
   if (!str.includes("'")) return `'${str}'`;
   const parts = str.split("'");
@@ -281,7 +296,7 @@ const XPATH_ANT_INPUT =
  * Pancake mixes `invoice-label` rows with standard Ant `ant-form-item` + `ant-form-item-label`
  * (often used for CCCD / định danh); those need the form-item paths first.
  */
-function xpathsForInvoiceLabeledField(labelContains) {
+function xpathsForInvoiceLabeledField(labelContains: string) {
   const lit = xpathStringLiteral(labelContains);
   const body = '//div[contains(@class, "ant-modal-body")]';
   const content = '//div[contains(@class, "ant-modal-content")]';
@@ -316,7 +331,7 @@ function xpathsForInvoiceLabeledField(labelContains) {
  * Pancake e-invoice modal often exposes `placeholder="Nhập …"` on the real input while labels
  * sit in a separate column (our label XPaths miss). Match by placeholder substring.
  */
-function xpathsForPlaceholder(placeholderSubstring) {
+function xpathsForPlaceholder(placeholderSubstring: string) {
   const lit = xpathStringLiteral(placeholderSubstring);
   const body = '//div[contains(@class, "ant-modal-body")]';
   const content = '//div[contains(@class, "ant-modal-content")]';
@@ -360,13 +375,13 @@ const INVOICE_FIELD_LABELS = {
   ],
 };
 
-async function waitInvoiceModal(browser) {
+async function waitInvoiceModal(browser: WdioBrowser) {
   const modal = await browser.$(SEL.invoiceModal);
   await modal.waitForDisplayed({ timeout: 20000 });
 }
 
 /** Scroll e-invoice modal body so lower fields (e.g. CCCD) are in the DOM viewport. */
-async function scrollInvoiceModalBodyToEnd(browser) {
+async function scrollInvoiceModalBodyToEnd(browser: WdioBrowser) {
   await browser.execute(() => {
     const b = document.querySelector('.ant-modal-body');
     if (b && typeof b.scrollTop === 'number') {
@@ -379,7 +394,13 @@ async function scrollInvoiceModalBodyToEnd(browser) {
 /**
  * Focus, clear, set value on a resolved input/textarea; React fallback if value does not stick.
  */
-async function fillInvoiceControlElement(browser, el, str, logLabel, viaDescription) {
+async function fillInvoiceControlElement(
+  browser: WdioBrowser,
+  el: WdioElement,
+  str: string,
+  logLabel: string,
+  viaDescription: string
+) {
   await el.scrollIntoView({ block: 'center' });
   await el.waitForDisplayed({ timeout: 8000 });
   await el.click();
@@ -398,7 +419,7 @@ async function fillInvoiceControlElement(browser, el, str, logLabel, viaDescript
   }
   if (current !== str) {
     await browser.execute(
-      (elem, v) => {
+      (elem: HTMLInputElement | HTMLTextAreaElement, v: string) => {
         const desc =
           elem instanceof HTMLTextAreaElement
             ? Object.getOwnPropertyDescriptor(
@@ -417,7 +438,7 @@ async function fillInvoiceControlElement(browser, el, str, logLabel, viaDescript
         elem.dispatchEvent(new Event('input', { bubbles: true }));
         elem.dispatchEvent(new Event('change', { bubbles: true }));
       },
-      el,
+      el as unknown as HTMLInputElement,
       str
     );
   }
@@ -427,10 +448,10 @@ async function fillInvoiceControlElement(browser, el, str, logLabel, viaDescript
 
 /** Try `placeholder="Nhập …"` on inputs (Pancake buyer section). */
 async function tryFillInvoiceFieldByPlaceholders(
-  browser,
-  placeholderVariants,
-  value,
-  logLabel
+  browser: WdioBrowser,
+  placeholderVariants: string | string[],
+  value: unknown,
+  logLabel: string
 ) {
   if (value === undefined || value === null) {
     return false;
@@ -467,7 +488,7 @@ async function tryFillInvoiceFieldByPlaceholders(
       } catch (err) {
         console.warn(
           `[fill] ${logLabel} placeholder "${ph}" failed:`,
-          err && err.message ? err.message : err
+          err instanceof Error ? err.message : err
         );
       }
     }
@@ -478,7 +499,12 @@ async function tryFillInvoiceFieldByPlaceholders(
 /**
  * Set a text/textarea control in the e-invoice modal; tries several XPaths and label variants.
  */
-async function safeSetInvoiceField(browser, labelVariants, value, logLabel) {
+async function safeSetInvoiceField(
+  browser: WdioBrowser,
+  labelVariants: string | string[],
+  value: unknown,
+  logLabel: string
+) {
   if (value === undefined || value === null) {
     return false;
   }
@@ -514,7 +540,7 @@ async function safeSetInvoiceField(browser, labelVariants, value, logLabel) {
       } catch (err) {
         console.warn(
           `[fill] ${logLabel} attempt failed for label "${labelSub}":`,
-          err && err.message ? err.message : err
+          err instanceof Error ? err.message : err
         );
       }
     }
@@ -527,7 +553,14 @@ async function safeSetInvoiceField(browser, labelVariants, value, logLabel) {
 }
 
 /** Placeholders first (Pancake), then label XPaths, then optional ID heuristic. */
-async function fillInvoiceField(browser, fieldKey, value, options = {}) {
+type InvoiceFieldKey = keyof typeof INVOICE_FIELD_PLACEHOLDERS;
+
+async function fillInvoiceField(
+  browser: WdioBrowser,
+  fieldKey: InvoiceFieldKey,
+  value: unknown,
+  options: { heuristicIdFallback?: boolean } = {}
+) {
   const { heuristicIdFallback = false } = options;
   const placeholders = INVOICE_FIELD_PLACEHOLDERS[fieldKey];
   const labels = INVOICE_FIELD_LABELS[fieldKey];
@@ -562,26 +595,32 @@ async function fillInvoiceField(browser, fieldKey, value, options = {}) {
  * After other fields are filled, pick the last visible plain `input`/`textarea` in the modal body
  * (prefer the last empty one in document order) and set the value with React-friendly events.
  */
-async function tryFillInvoiceIdFieldHeuristic(browser, value) {
+async function tryFillInvoiceIdFieldHeuristic(
+  browser: WdioBrowser,
+  value: unknown
+) {
   const str = String(value).trim();
   if (!str) {
     return false;
   }
 
-  const ok = await browser.execute((v) => {
-    function setNativeValue(el, val) {
+  const ok = await browser.execute((v: string) => {
+    function setNativeValue(
+      inputEl: HTMLInputElement | HTMLTextAreaElement,
+      val: string
+    ) {
       const Proto =
-        el instanceof HTMLTextAreaElement
+        inputEl instanceof HTMLTextAreaElement
           ? HTMLTextAreaElement
           : HTMLInputElement;
       const desc = Object.getOwnPropertyDescriptor(Proto.prototype, 'value');
       if (desc && desc.set) {
-        desc.set.call(el, val);
+        desc.set.call(inputEl, val);
       } else {
-        el.value = val;
+        inputEl.value = val;
       }
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
+      inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+      inputEl.dispatchEvent(new Event('change', { bubbles: true }));
     }
 
     const root = document.querySelector('.ant-modal-body');
@@ -589,9 +628,11 @@ async function tryFillInvoiceIdFieldHeuristic(browser, value) {
       return false;
     }
 
-    const nodes = Array.from(root.querySelectorAll('input, textarea'));
-    const candidates = nodes.filter((el) => {
-      const t = (el.type || '').toLowerCase();
+    const nodes = Array.from(
+      root.querySelectorAll('input, textarea')
+    ) as (HTMLInputElement | HTMLTextAreaElement)[];
+    const candidates = nodes.filter((inputEl) => {
+      const t = (inputEl.type || '').toLowerCase();
       if (
         t === 'hidden' ||
         t === 'checkbox' ||
@@ -604,23 +645,23 @@ async function tryFillInvoiceIdFieldHeuristic(browser, value) {
         return false;
       }
       if (
-        el.closest(
+        inputEl.closest(
           '.ant-select, .ant-picker, .ant-cascader, .ant-auto-complete, .ant-input-search'
         )
       ) {
         return false;
       }
-      if (el.getAttribute('role') === 'combobox') {
+      if (inputEl.getAttribute('role') === 'combobox') {
         return false;
       }
-      if (el.disabled || el.readOnly) {
+      if (inputEl.disabled || inputEl.readOnly) {
         return false;
       }
-      const r = el.getBoundingClientRect();
+      const r = inputEl.getBoundingClientRect();
       if (r.width < 2 || r.height < 2) {
         return false;
       }
-      const st = window.getComputedStyle(el);
+      const st = window.getComputedStyle(inputEl);
       if (st.visibility === 'hidden' || st.display === 'none') {
         return false;
       }
@@ -633,7 +674,7 @@ async function tryFillInvoiceIdFieldHeuristic(browser, value) {
 
     const lastEmpty = [...candidates]
       .reverse()
-      .find((el) => !String(el.value || '').trim());
+      .find((inputEl) => !String(inputEl.value || '').trim());
     const target = lastEmpty || candidates[candidates.length - 1];
 
     target.scrollIntoView({ block: 'center' });
@@ -654,7 +695,10 @@ async function tryFillInvoiceIdFieldHeuristic(browser, value) {
   return false;
 }
 
-async function processInvoicesByBuyerName(browser, invoiceRows) {
+async function processInvoicesByBuyerName(
+  browser: WdioBrowser,
+  invoiceRows: InvoiceRow[]
+) {
   const processed = new Set(
     loadFilledInvoiceKeys().map((k) => normalizeNameKey(String(k)))
   );
@@ -771,7 +815,7 @@ async function processInvoicesByBuyerName(browser, invoiceRows) {
   }
 }
 
-async function fillInvoiceForm(browser, data) {
+async function fillInvoiceForm(browser: WdioBrowser, data: InvoiceRow) {
   await waitInvoiceModal(browser);
   await browser.pause(400);
 
@@ -812,7 +856,7 @@ function getLoginCredentials() {
 }
 
 /** Click first visible control whose text contains `text` (button / link / role=button). */
-async function clickElementContaining(browser, text) {
+async function clickElementContaining(browser: WdioBrowser, text: string) {
   const lit = xpathStringLiteral(text);
   const xpaths = [
     `//button[contains(., ${lit})]`,
@@ -836,7 +880,7 @@ async function clickElementContaining(browser, text) {
   return false;
 }
 
-async function waitForDashboardAfterLogin(browser) {
+async function waitForDashboardAfterLogin(browser: WdioBrowser) {
   const timeoutMs = Number(process.env.PANCAKE_DASHBOARD_WAIT_MS) || 120000;
   await browser.waitUntil(
     async () => (await browser.getUrl()).includes(POS_DASHBOARD_URL_SNIPPET),
@@ -852,7 +896,7 @@ async function waitForDashboardAfterLogin(browser) {
  * 1) pos.pancake.vn → 2) "Dùng thử ngay" → 3) account + password → 4) "Đăng nhập"
  * 5) wait until URL is dashboard → 6) e-invoices
  */
-async function loginToPancake(browser) {
+async function loginToPancake(browser: WdioBrowser) {
   const { phone, password } = getLoginCredentials();
 
   const homeUrl = process.env.PANCAKE_POS_HOME_URL || POS_HOME_URL;
@@ -935,14 +979,14 @@ async function loginToPancake(browser) {
   await browser.pause(2000);
 }
 
-async function runPancakeFlow() {
+export async function runPancakeFlow() {
   const invoiceRows = loadInvoiceData();
-  let driverChild = null;
+  let driverChild: ChildProcess | null = null;
 
   const { port, child } = await startChromeDriver();
   driverChild = child;
 
-  let browser;
+  let browser: WdioBrowser | undefined;
   try {
     browser = await remote({
       hostname: 'localhost',
@@ -1000,12 +1044,3 @@ async function runPancakeFlow() {
   }
 }
 
-module.exports = { runPancakeFlow };
-
-// Allow: node pancakeAutomation.js
-if (require.main === module) {
-  runPancakeFlow().catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
-}

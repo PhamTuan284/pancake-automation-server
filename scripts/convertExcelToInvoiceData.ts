@@ -1,14 +1,11 @@
 /**
  * CLI: convert a local Excel file to invoiceData.json (same columns as API upload).
- * Usage: PANCAKE_EXCEL_PATH="C:/path/file.xlsx" node scripts/convertExcelToInvoiceData.js
+ * Usage: PANCAKE_EXCEL_PATH="C:/path/file.xlsx" npx tsx scripts/convertExcelToInvoiceData.ts
  */
-const fs = require('fs');
-const path = require('path');
-const xlsx = require('xlsx');
-const {
-  parseExcelRows,
-  saveInvoiceDataToDisk,
-} = require('../invoiceExcel');
+import fs from 'fs';
+import path from 'path';
+import xlsx from 'xlsx';
+import { parseExcelRows, saveInvoiceDataToDisk } from '../invoiceExcel';
 
 const excelPath =
   process.env.PANCAKE_EXCEL_PATH ||
@@ -22,13 +19,14 @@ if (!fs.existsSync(excelPath)) {
 
 const wb = xlsx.readFile(excelPath);
 const ws = wb.Sheets[wb.SheetNames[0]];
-const rows = xlsx.utils.sheet_to_json(ws, { header: 1, defval: '' });
+const rows = xlsx.utils.sheet_to_json(ws, { header: 1, defval: '' }) as unknown[][];
 
 let data;
 try {
   data = parseExcelRows(rows);
 } catch (e) {
-  console.error(e.message || e);
+  const msg = e instanceof Error ? e.message : String(e);
+  console.error(msg);
   process.exit(1);
 }
 

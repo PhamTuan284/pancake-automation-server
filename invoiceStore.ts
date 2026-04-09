@@ -1,26 +1,27 @@
-const mongoose = require('mongoose');
-const InvoiceClient = require('./models/InvoiceClient');
-const {
+import mongoose from 'mongoose';
+import InvoiceClient from './models/InvoiceClient';
+import {
   loadInvoiceDataNormalized,
   saveInvoiceDataToDisk,
   normalizeInvoiceRow,
-} = require('./invoiceExcel');
+} from './invoiceExcel';
+import type { InvoiceRow } from './types/invoice';
 
 /**
  * Railway’s MongoDB plugin usually exposes MONGO_URL.
  * You can also set MONGODB_URI in .env (Atlas, local, etc.).
  */
-function mongoUri() {
+export function mongoUri(): string {
   return String(
     process.env.MONGODB_URI || process.env.MONGO_URL || ''
   ).trim();
 }
 
-function useMongo() {
+export function useMongo(): boolean {
   return mongoUri().length > 0;
 }
 
-async function connectMongo() {
+export async function connectMongo(): Promise<void> {
   if (!useMongo()) {
     throw new Error('No MONGODB_URI or MONGO_URL');
   }
@@ -33,7 +34,15 @@ async function connectMongo() {
   });
 }
 
-function docToRow(doc) {
+function docToRow(doc: {
+  buyerName?: string;
+  taxCode?: string;
+  phone?: string;
+  idNumber?: string;
+  address?: string;
+  businessLicense?: string;
+  operationName?: string;
+}): InvoiceRow {
   return normalizeInvoiceRow({
     buyerName: doc.buyerName,
     taxCode: doc.taxCode,
@@ -45,7 +54,7 @@ function docToRow(doc) {
   });
 }
 
-async function loadNormalizedRows() {
+export async function loadNormalizedRows(): Promise<InvoiceRow[]> {
   if (!useMongo()) {
     return loadInvoiceDataNormalized();
   }
@@ -54,7 +63,7 @@ async function loadNormalizedRows() {
   return docs.map(docToRow);
 }
 
-async function replaceAllRows(rows) {
+export async function replaceAllRows(rows: InvoiceRow[]): Promise<void> {
   if (!useMongo()) {
     saveInvoiceDataToDisk(rows);
     return;
@@ -69,17 +78,9 @@ async function replaceAllRows(rows) {
   }
 }
 
-async function ensureMongoConnected() {
+export async function ensureMongoConnected(): Promise<void> {
   if (!useMongo()) return;
   await connectMongo();
 }
 
-module.exports = {
-  useMongo,
-  mongoUri,
-  connectMongo,
-  loadNormalizedRows,
-  replaceAllRows,
-  ensureMongoConnected,
-  normalizeInvoiceRow,
-};
+export { normalizeInvoiceRow };

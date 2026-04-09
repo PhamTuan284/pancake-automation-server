@@ -1,6 +1,7 @@
-const fs = require('fs');
-const path = require('path');
-const xlsx = require('xlsx');
+import fs from 'fs';
+import path from 'path';
+import xlsx from 'xlsx';
+import type { InvoiceRow } from './types/invoice';
 
 const INVOICE_DATA_PATH = path.join(__dirname, 'invoiceData.json');
 
@@ -13,37 +14,39 @@ const EXCEL_HEADERS = {
   address: 'Địa chỉ',
   businessLicense: 'Giấy phép kinh doanh',
   operationName: 'Tên đơn vị',
-};
+} as const;
 
-function trimStr(v) {
+type HeaderKey = keyof typeof EXCEL_HEADERS;
+
+function trimStr(v: unknown): string {
   if (v == null || v === '') return '';
   const s =
     typeof v === 'number' && !Number.isNaN(v) ? String(v) : String(v);
   return s.replace(/^\uFEFF/, '').trim();
 }
 
-function buildHeaderIndex(headerRow) {
-  const idx = {};
+function buildHeaderIndex(headerRow: unknown[]): Partial<Record<HeaderKey, number>> {
+  const idx: Partial<Record<HeaderKey, number>> = {};
   if (!headerRow || !Array.isArray(headerRow)) {
     return idx;
   }
   const normalized = headerRow.map((h) => trimStr(h));
-  for (const [key, label] of Object.entries(EXCEL_HEADERS)) {
+  for (const [key, label] of Object.entries(EXCEL_HEADERS) as [
+    HeaderKey,
+    string,
+  ][]) {
     idx[key] = normalized.indexOf(label);
   }
   return idx;
 }
 
-function cell(row, colIndex) {
+function cell(row: unknown[], colIndex: number): string {
   if (colIndex < 0 || !row) return '';
   const v = row[colIndex];
   return trimStr(v);
 }
 
-/**
- * @param {any[][]} rows - First row = headers (from sheet_to_json header: 1)
- */
-function parseExcelRows(rows) {
+function parseExcelRows(rows: unknown[][]): InvoiceRow[] {
   if (!rows || rows.length === 0) {
     return [];
   }
@@ -56,44 +59,47 @@ function parseExcelRows(rows) {
     );
   }
 
-  const out = [];
+  const out: InvoiceRow[] = [];
   for (let r = 1; r < rows.length; r++) {
-    const row = rows[r];
+    const row = rows[r] as unknown[];
     if (!row || !row.length) continue;
-    const buyerName = cell(row, idx.buyerName);
-    const operationName = cell(row, idx.operationName);
+    const buyerName = cell(row, idx.buyerName ?? -1);
+    const operationName = cell(row, idx.operationName ?? -1);
     if (!buyerName && !operationName) continue;
 
     out.push({
       buyerName,
-      taxCode: cell(row, idx.taxCode),
-      phone: cell(row, idx.phone),
-      idNumber: cell(row, idx.idNumber),
-      address: cell(row, idx.address),
-      businessLicense: cell(row, idx.businessLicense),
+      taxCode: cell(row, idx.taxCode ?? -1),
+      phone: cell(row, idx.phone ?? -1),
+      idNumber: cell(row, idx.idNumber ?? -1),
+      address: cell(row, idx.address ?? -1),
+      businessLicense: cell(row, idx.businessLicense ?? -1),
       operationName,
     });
   }
   return out;
 }
 
-function parseExcelBuffer(buffer) {
+function parseExcelBuffer(buffer: Buffer): InvoiceRow[] {
   const wb = xlsx.read(buffer, { type: 'buffer' });
   const ws = wb.Sheets[wb.SheetNames[0]];
-  const rows = xlsx.utils.sheet_to_json(ws, { header: 1, defval: '' });
+  const rows = xlsx.utils.sheet_to_json(ws, {
+    header: 1,
+    defval: '',
+  }) as unknown[][];
   return parseExcelRows(rows);
 }
 
-function loadInvoiceDataFromDisk() {
+function loadInvoiceDataFromDisk(): unknown[] {
   if (!fs.existsSync(INVOICE_DATA_PATH)) {
     return [];
   }
   const raw = fs.readFileSync(INVOICE_DATA_PATH, 'utf8');
-  const data = JSON.parse(raw);
+  const data = JSON.parse(raw) as unknown;
   return Array.isArray(data) ? data : [];
 }
 
-function saveInvoiceDataToDisk(data) {
+function saveInvoiceDataToDisk(data: InvoiceRow[]): void {
   fs.writeFileSync(
     INVOICE_DATA_PATH,
     JSON.stringify(data, null, 2),
@@ -102,26 +108,27 @@ function saveInvoiceDataToDisk(data) {
 }
 
 /** Normalize one row so UI / older code always sees every key. */
-function normalizeInvoiceRow(r) {
+export function normalizeInvoiceRow(r: Partial<InvoiceRow> | null | undefined): InvoiceRow {
   return {
-    buyerName: trimStr(r.buyerName),
-    taxCode: trimStr(r.taxCode),
-    phone: trimStr(r.phone),
-    idNumber: trimStr(r.idNumber),
-    address: trimStr(r.address),
-    businessLicense: trimStr(r.businessLicense),
-    operationName: trimStr(r.operationName),
+    buyerName: trimStr(r?.buyerName),
+    taxCode: trimStr(r?.taxCode),
+    phone: trimStr(r?.phone),
+    idNumber: trimStr(r?.idNumber),
+    address: trimStr(r?.address),
+    businessLicense: trimStr(r?.businessLicense),
+    operationName: trimStr(r?.operationName),
   };
 }
 
-function loadInvoiceDataNormalized() {
-  return loadInvoiceDataFromDisk().map(normalizeInvoiceRow);
+function loadInvoiceDataNormalized(): InvoiceRow[] {
+  return loadInvoiceDataFromDisk().map((r) =>
+    normalizeInvoiceRow(r as Partial<InvoiceRow>)
+  );
 }
 
-module.exports = {
+export {
   parseExcelBuffer,
   parseExcelRows,
   saveInvoiceDataToDisk,
   loadInvoiceDataNormalized,
-  normalizeInvoiceRow,
 };

@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const collection =
   String(process.env.MONGODB_INVOICE_COLLECTION || 'invoice_clients').trim() ||
@@ -18,4 +18,4 @@ const invoiceClientSchema = new mongoose.Schema(
   { collection }
 );
 
-module.exports = mongoose.model('InvoiceClient', invoiceClientSchema);
+export default mongoose.model('InvoiceClient', invoiceClientSchema);

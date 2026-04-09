@@ -3,13 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "description": "Express API + WebdriverIO automation for Pancake POS e-invoices",
-  "main": "index.js",
+  "main": "index.ts",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js",
-    "automation": "node pancakeAutomation.js",
-    "seed-mongo": "node scripts/seedInvoiceDataToMongo.js",
-    "test-mongo": "node scripts/testMongoConnection.js"
+    "start": "tsx index.ts",
+    "dev": "nodemon --exec tsx index.ts",
+    "typecheck": "tsc --noEmit",
+    "automation": "tsx scripts/runAutomation.ts",
+    "seed-mongo": "tsx scripts/seedInvoiceDataToMongo.ts",
+    "test-mongo": "tsx scripts/testMongoConnection.ts"
   },
   "dependencies": {
     "chromedriver": "^146.0.0",
@@ -19,18 +20,25 @@
     "mongoose": "^8.9.5",
     "multer": "^2.1.1",
     "webdriverio": "^8.40.6",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "tsx": "^4.19.2"
   },
   "devDependencies": {
-    "nodemon": "^3.1.9"
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/multer": "^1.4.12",
+    "@types/node": "^22.10.5",
+    "nodemon": "^3.1.9",
+    "typescript": "^5.7.2"
   },
   "nodemonConfig": {
     "watch": [
-      "index.js",
-      "invoiceStore.js",
-      "models/InvoiceClient.js",
-      "invoiceExcel.js",
-      "pancakeAutomation.js",
+      "index.ts",
+      "invoiceStore.ts",
+      "models/InvoiceClient.ts",
+      "invoiceExcel.ts",
+      "pancakeAutomation.ts",
+      "types",
       "invoiceData.json",
       ".env"
     ],

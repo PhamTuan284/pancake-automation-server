@@ -6,10 +6,12 @@
  * PowerShell:
  *   npm run test-mongo
  */
-const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+import path from 'path';
+import dotenv from 'dotenv';
+import mongoose from 'mongoose';
+import InvoiceClient from '../models/InvoiceClient';
 
-const mongoose = require('mongoose');
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const uri = String(
   process.env.TEST_MONGO_URI ||
@@ -42,19 +44,19 @@ async function main() {
     serverSelectionTimeoutMS: 15000,
   });
 
-  const admin = mongoose.connection.db.admin();
+  const admin = mongoose.connection.db!.admin();
   const ping = await admin.command({ ping: 1 });
   console.log('Ping:', ping.ok === 1 ? 'OK' : ping);
 
-  const dbName = mongoose.connection.db.databaseName;
+  const dbName = mongoose.connection.db!.databaseName;
   console.log('Database:', dbName);
 
   try {
-    const InvoiceClient = require('../models/InvoiceClient');
     const n = await InvoiceClient.countDocuments();
     console.log(`Collection "${InvoiceClient.collection.name}": ${n} document(s)`);
   } catch (e) {
-    console.log('(Could not count invoice_clients:', e.message + ')');
+    const msg = e instanceof Error ? e.message : String(e);
+    console.log('(Could not count invoice_clients:', msg + ')');
   }
 
   await mongoose.disconnect();
@@ -62,6 +64,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('Connection failed:', err.message || err);
+  const msg = err instanceof Error ? err.message : String(err);
+  console.error('Connection failed:', msg);
   process.exit(1);
 });

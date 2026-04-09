@@ -1,6 +1,6 @@
-const fs = require('fs');
-const path = require('path');
-const xlsx = require('xlsx');
+import fs from 'fs';
+import path from 'path';
+import xlsx from 'xlsx';
 
 const file =
   process.env.PANCAKE_EXCEL_PATH ||
@@ -14,10 +14,9 @@ if (!fs.existsSync(file)) {
 const wb = xlsx.readFile(file);
 const sheetName = wb.SheetNames[0];
 const ws = wb.Sheets[sheetName];
-const rows = xlsx.utils.sheet_to_json(ws, { header: 1 });
+const rows = xlsx.utils.sheet_to_json(ws, { header: 1 }) as unknown[][];
 
 console.log('Sheet:', sheetName);
 console.log('Header row:', JSON.stringify(rows[0]));
 console.log('First 5 data rows:');
 console.log(JSON.stringify(rows.slice(1, 6), null, 2));
-
