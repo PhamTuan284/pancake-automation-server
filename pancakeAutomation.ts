@@ -1058,6 +1058,48 @@ async function findPhoneInput(browser: WdioBrowser): Promise<WdioElement | null>
   return null;
 }
 
+async function logLoginCandidates(browser: WdioBrowser): Promise<void> {
+  try {
+    await browser.switchToFrame(null);
+    const snippets = await browser.execute(() => {
+      const out: string[] = [];
+      const nodes = Array.from(
+        document.querySelectorAll('a,button,[role="button"]')
+      ) as HTMLElement[];
+      for (const n of nodes) {
+        const txt = (n.textContent || '').replace(/\s+/g, ' ').trim();
+        if (!txt) continue;
+        if (out.length >= 30) break;
+        out.push(txt.slice(0, 80));
+      }
+      return out;
+    });
+    if (Array.isArray(snippets) && snippets.length > 0) {
+      console.warn(
+        `[login-debug] visible clickable texts: ${snippets.join(' | ')}`
+      );
+    }
+  } catch {
+    /* ignore diagnostics */
+  }
+}
+
+function loginUrlCandidates(homeUrl: string): string[] {
+  const env = String(process.env.PANCAKE_LOGIN_URLS || '').trim();
+  if (env) {
+    return env
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return [
+    homeUrl,
+    'https://accounts.pancake.vn/login',
+    'https://accounts.pancake.vn/sign-in',
+    'https://pos.pancake.vn/login',
+  ];
+}
+
 /**
  * Login flow with fallback:
  * - If already logged in (dashboard), skip form and go to e-invoices.
@@ -1067,40 +1109,41 @@ async function loginToPancake(browser: WdioBrowser) {
   const { phone, password } = getLoginCredentials();
 
   const homeUrl = process.env.PANCAKE_POS_HOME_URL || POS_HOME_URL;
-  await browser.url(homeUrl);
-  await browser.pause(2500);
-
-  const currentUrl = await browser.getUrl();
-  if (currentUrl.includes(POS_DASHBOARD_URL_SNIPPET)) {
-    console.log('[login] Dashboard already detected; skipping login form.');
-    await browser.url(INVOICE_URL);
-    await browser.pause(2000);
-    return;
-  }
-
-  const clickedTry = await clickElementContaining(browser, 'Dùng thử ngay');
-  if (clickedTry) {
-    await browser.pause(2500);
-  } else {
-    console.warn(
-      '[login] "Dùng thử ngay" not found; trying direct login form selectors.'
-    );
-  }
-
-  let phoneEl: WdioElement | null = await findPhoneInput(browser);
-  if (!phoneEl) {
-    // Some variants show only a top-nav login link/button; open it then retry.
-    const clickedLogin =
-      (await clickElementContaining(browser, 'Đăng nhập')) ||
-      (await clickElementContaining(browser, 'Đăng Nhập')) ||
-      (await clickElementContaining(browser, 'Login')) ||
-      (await clickElementContaining(browser, 'Log in'));
-    if (clickedLogin) {
-      await browser.pause(2200);
-      phoneEl = await findPhoneInput(browser);
+  const candidates = loginUrlCandidates(homeUrl);
+  let phoneEl: WdioElement | null = null;
+  for (const u of candidates) {
+    await browser.url(u);
+    await browser.pause(2400);
+    const currentUrl = await browser.getUrl();
+    if (currentUrl.includes(POS_DASHBOARD_URL_SNIPPET)) {
+      console.log('[login] Dashboard already detected; skipping login form.');
+      await browser.url(INVOICE_URL);
+      await browser.pause(2000);
+      return;
     }
+
+    // On marketing pages, first try CTA / login entry points.
+    const clickedTry = await clickElementContaining(browser, 'Dùng thử ngay');
+    if (clickedTry) {
+      await browser.pause(2200);
+    }
+    if (!clickedTry) {
+      const clickedLogin =
+        (await clickElementContaining(browser, 'Đăng nhập')) ||
+        (await clickElementContaining(browser, 'Đăng Nhập')) ||
+        (await clickElementContaining(browser, 'Login')) ||
+        (await clickElementContaining(browser, 'Log in'));
+      if (clickedLogin) {
+        await browser.pause(2200);
+      }
+    }
+
+    phoneEl = await findPhoneInput(browser);
+    if (phoneEl) break;
   }
+
   if (!phoneEl) {
+    await logLoginCandidates(browser);
     await captureLoginDebugArtifacts(
       browser,
       'No phone/account input found in root document or iframes'
