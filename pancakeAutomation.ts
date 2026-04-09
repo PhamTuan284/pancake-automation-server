@@ -971,8 +971,9 @@ async function waitForDashboardAfterLogin(browser: WdioBrowser) {
 }
 
 /**
- * 1) pos.pancake.vn → 2) "Dùng thử ngay" → 3) account + password → 4) "Đăng nhập"
- * 5) wait until URL is dashboard → 6) e-invoices
+ * Login flow with fallback:
+ * - If already logged in (dashboard), skip form and go to e-invoices.
+ * - Else try "Dùng thử ngay"; if absent, continue (site variants often open login directly).
  */
 async function loginToPancake(browser: WdioBrowser) {
   const { phone, password } = getLoginCredentials();
@@ -981,12 +982,22 @@ async function loginToPancake(browser: WdioBrowser) {
   await browser.url(homeUrl);
   await browser.pause(2500);
 
-  const clickedTry = await clickElementContaining(browser, 'Dùng thử ngay');
-  if (!clickedTry) {
-    throw new Error('Login: "Dùng thử ngay" not found on pos.pancake.vn');
+  const currentUrl = await browser.getUrl();
+  if (currentUrl.includes(POS_DASHBOARD_URL_SNIPPET)) {
+    console.log('[login] Dashboard already detected; skipping login form.');
+    await browser.url(INVOICE_URL);
+    await browser.pause(2000);
+    return;
   }
 
-  await browser.pause(2500);
+  const clickedTry = await clickElementContaining(browser, 'Dùng thử ngay');
+  if (clickedTry) {
+    await browser.pause(2500);
+  } else {
+    console.warn(
+      '[login] "Dùng thử ngay" not found; trying direct login form selectors.'
+    );
+  }
 
   const phoneSelectors = [
     'input[type="tel"]',
@@ -1024,7 +1035,9 @@ async function loginToPancake(browser: WdioBrowser) {
     }
   }
   if (!phoneEl) {
-    throw new Error('Login: phone/account input not found after "Dùng thử ngay"');
+    throw new Error(
+      'Login: phone/account input not found. UI may have changed; update selectors.'
+    );
   }
 
   await phoneEl.click();
