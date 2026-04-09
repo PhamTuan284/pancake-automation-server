@@ -970,6 +970,65 @@ async function waitForDashboardAfterLogin(browser: WdioBrowser) {
   );
 }
 
+async function captureLoginDebugArtifacts(
+  browser: WdioBrowser,
+  reason: string
+): Promise<void> {
+  try {
+    const url = await browser.getUrl();
+    const title = await browser.getTitle();
+    console.warn(`[login-debug] ${reason}`);
+    console.warn(`[login-debug] url=${url}`);
+    console.warn(`[login-debug] title=${title}`);
+    const shotPath = `/tmp/pancake-login-debug-${Date.now()}.png`;
+    await browser.saveScreenshot(shotPath);
+    console.warn(`[login-debug] screenshot=${shotPath}`);
+  } catch (e) {
+    console.warn('[login-debug] could not capture artifacts:', e);
+  }
+}
+
+async function findVisibleInAnyFrame(
+  browser: WdioBrowser,
+  selector: string
+): Promise<WdioElement | null> {
+  await browser.switchToFrame(null);
+  const rootEl = await browser.$(selector);
+  if (await rootEl.isExisting()) {
+    try {
+      await rootEl.waitForDisplayed({ timeout: 1200 });
+      if (await rootEl.isDisplayed()) return rootEl;
+    } catch {
+      /* continue */
+    }
+  }
+
+  const frames = await browser.$$('iframe, frame');
+  for (const frame of frames) {
+    try {
+      await browser.switchToFrame(frame);
+      const el = await browser.$(selector);
+      if (await el.isExisting()) {
+        try {
+          await el.waitForDisplayed({ timeout: 1200 });
+          if (await el.isDisplayed()) return el;
+        } catch {
+          /* continue */
+        }
+      }
+    } catch {
+      /* frame may be cross-origin or detached */
+    } finally {
+      try {
+        await browser.switchToFrame(null);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return null;
+}
+
 /**
  * Login flow with fallback:
  * - If already logged in (dashboard), skip form and go to e-invoices.
@@ -1001,29 +1060,28 @@ async function loginToPancake(browser: WdioBrowser) {
 
   const phoneSelectors = [
     'input[type="tel"]',
+    'input[type="email"]',
     'input[name="phone"]',
+    'input[name="email"]',
     'input[name="username"]',
     'input[autocomplete="username"]',
     'input[autocomplete="tel"]',
+    'input[autocomplete="email"]',
     'input[type="text"]',
   ];
-  let phoneEl = null;
+  let phoneEl: WdioElement | null = null;
   for (const sel of phoneSelectors) {
-    const el = await browser.$(sel);
-    if (await el.isExisting()) {
-      try {
-        await el.waitForDisplayed({ timeout: 3000 });
-        if (await el.isDisplayed()) {
-          phoneEl = el;
-          break;
-        }
-      } catch {
-        /* next */
-      }
+    const el = await findVisibleInAnyFrame(browser, sel);
+    if (el) {
+      phoneEl = el;
+      break;
     }
   }
   if (!phoneEl) {
-    const inputs = await browser.$$('input[type="text"], input[type="tel"]');
+    await browser.switchToFrame(null);
+    const inputs = await browser.$$(
+      'input[type="text"], input[type="tel"], input[type="email"]'
+    );
     for (const el of inputs) {
       if (await el.isDisplayed()) {
         const t = await el.getAttribute('type');
@@ -1035,6 +1093,10 @@ async function loginToPancake(browser: WdioBrowser) {
     }
   }
   if (!phoneEl) {
+    await captureLoginDebugArtifacts(
+      browser,
+      'No phone/account input found in root document or iframes'
+    );
     throw new Error(
       'Login: phone/account input not found. UI may have changed; update selectors.'
     );
@@ -1044,8 +1106,14 @@ async function loginToPancake(browser: WdioBrowser) {
   await phoneEl.clearValue();
   await phoneEl.setValue(phone);
 
-  const passwordEl = await browser.$('input[type="password"]');
-  await passwordEl.waitForDisplayed({ timeout: 15000 });
+  const passwordEl = await findVisibleInAnyFrame(browser, 'input[type="password"]');
+  if (!passwordEl) {
+    await captureLoginDebugArtifacts(
+      browser,
+      'Password input not found in root document or iframes'
+    );
+    throw new Error('Login: password input not found');
+  }
   await passwordEl.click();
   await passwordEl.clearValue();
   await passwordEl.setValue(password);
