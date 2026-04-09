@@ -14,7 +14,7 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 type WdioBrowser = Awaited<ReturnType<typeof remote>>;
 type WdioElement = Awaited<ReturnType<WdioBrowser['$']>>;
 
-const INVOICE_URL =
+const DEFAULT_INVOICE_URL =
   'https://pos.pancake.vn/shop/1942925579/e-invoices';
 
 /** Marketing home; optional override PANCAKE_POS_HOME_URL */
@@ -775,7 +775,8 @@ async function tryFillInvoiceIdFieldHeuristic(
 
 async function processInvoicesByBuyerName(
   browser: WdioBrowser,
-  invoiceRows: InvoiceRow[]
+  invoiceRows: InvoiceRow[],
+  invoiceUrl: string
 ) {
   const processed = new Set(
     loadFilledInvoiceKeys().map((k) => normalizeNameKey(String(k)))
@@ -789,7 +790,7 @@ async function processInvoicesByBuyerName(
   // Loop until there are no more matching rows or nothing new can be processed.
   /* eslint-disable no-constant-condition */
   while (true) {
-    await browser.url(INVOICE_URL);
+    await browser.url(invoiceUrl);
     await browser.pause(3000);
 
     let processedOneOnPage = false;
@@ -974,7 +975,7 @@ async function waitForDashboardAfterLogin(browser: WdioBrowser) {
   } catch {
     // Some flows stay on account.pancake.vn but still hold a valid session.
     // Try opening the target page directly before failing hard.
-    await browser.url(INVOICE_URL);
+    await browser.url(DEFAULT_INVOICE_URL);
     await browser.pause(1800);
     const afterDirectNav = await browser.getUrl();
     if (afterDirectNav.includes('/e-invoices')) {
@@ -987,6 +988,80 @@ async function waitForDashboardAfterLogin(browser: WdioBrowser) {
       `Login did not redirect to dashboard and direct invoice navigation failed (current URL: ${afterDirectNav}).`
     );
   }
+}
+
+function invoiceUrlCandidates(): string[] {
+  const envCsv = String(process.env.PANCAKE_INVOICE_URLS || '').trim();
+  const single = String(process.env.PANCAKE_INVOICE_URL || '').trim();
+  const fromEnv = envCsv
+    ? envCsv
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+  const all = [...fromEnv, single, DEFAULT_INVOICE_URL].filter(Boolean);
+  return [...new Set(all)];
+}
+
+async function discoverInvoiceUrlFromPage(
+  browser: WdioBrowser
+): Promise<string | null> {
+  const found = await browser.execute(() => {
+    const links = Array.from(
+      document.querySelectorAll('a[href]')
+    ) as HTMLAnchorElement[];
+    const hrefs = links.map((a) => (a.href || '').trim()).filter(Boolean);
+    const eInvoice = hrefs.find((h) =>
+      /\/shop\/\d+\/e-invoices(?:[/?#]|$)/i.test(h)
+    );
+    if (eInvoice) return eInvoice;
+    const shopRoot = hrefs.find((h) => /\/shop\/\d+(?:[/?#]|$)/i.test(h));
+    if (shopRoot) {
+      try {
+        const u = new URL(shopRoot);
+        const m = u.pathname.match(/\/shop\/(\d+)/i);
+        if (m && m[1]) {
+          return `${u.origin}/shop/${m[1]}/e-invoices`;
+        }
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  });
+  return typeof found === 'string' && found ? found : null;
+}
+
+async function resolveWorkingInvoiceUrl(browser: WdioBrowser): Promise<string> {
+  const candidates = invoiceUrlCandidates();
+  for (const url of candidates) {
+    try {
+      await browser.url(url);
+      await browser.pause(1800);
+      const current = await browser.getUrl();
+      if (current.includes('/e-invoices')) {
+        return current;
+      }
+    } catch {
+      /* try next */
+    }
+  }
+
+  const discovered = await discoverInvoiceUrlFromPage(browser);
+  if (discovered) {
+    await browser.url(discovered);
+    await browser.pause(1800);
+    const current = await browser.getUrl();
+    if (current.includes('/e-invoices')) {
+      return current;
+    }
+  }
+
+  throw new Error(
+    `Could not resolve a working e-invoices URL after login. Tried: ${candidates.join(
+      ', '
+    )}`
+  );
 }
 
 async function captureLoginDebugArtifacts(
@@ -1124,7 +1199,7 @@ function loginUrlCandidates(homeUrl: string): string[] {
  * - If already logged in (dashboard), skip form and go to e-invoices.
  * - Else try "Dùng thử ngay"; if absent, continue (site variants often open login directly).
  */
-async function loginToPancake(browser: WdioBrowser) {
+async function loginToPancake(browser: WdioBrowser): Promise<string> {
   const { phone, password } = getLoginCredentials();
 
   const homeUrl = process.env.PANCAKE_POS_HOME_URL || POS_HOME_URL;
@@ -1144,9 +1219,7 @@ async function loginToPancake(browser: WdioBrowser) {
     const currentUrl = await browser.getUrl();
     if (currentUrl.includes(POS_DASHBOARD_URL_SNIPPET)) {
       console.log('[login] Dashboard already detected; skipping login form.');
-      await browser.url(INVOICE_URL);
-      await browser.pause(2000);
-      return;
+      return resolveWorkingInvoiceUrl(browser);
     }
 
     // On marketing pages, first try CTA / login entry points.
@@ -1215,8 +1288,7 @@ async function loginToPancake(browser: WdioBrowser) {
 
   await waitForDashboardAfterLogin(browser);
 
-  await browser.url(INVOICE_URL);
-  await browser.pause(2000);
+  return resolveWorkingInvoiceUrl(browser);
 }
 
 export async function runPancakeFlow() {
@@ -1280,9 +1352,10 @@ export async function runPancakeFlow() {
       }
     }
 
-    await loginToPancake(browser);
+    const invoiceUrl = await loginToPancake(browser);
+    console.log(`[login] Using invoice URL: ${invoiceUrl}`);
 
-    await processInvoicesByBuyerName(browser, invoiceRows);
+    await processInvoicesByBuyerName(browser, invoiceRows, invoiceUrl);
 
     console.log('Automation run finished');
   } catch (err) {
