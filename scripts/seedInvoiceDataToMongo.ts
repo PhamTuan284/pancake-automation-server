@@ -1,10 +1,10 @@
 /**
- * Import invoiceData.json into MongoDB via Mongoose.
+ * Import a JSON file (array of invoice rows) into MongoDB.
  *
  * PowerShell:
- *   $env:MONGO_URL="paste-from-railway"; npm run seed-mongo
+ *   $env:MONGO_URL="..."; $env:PANCAKE_SEED_JSON="C:/path/rows.json"; npm run seed-mongo
  *
- * Or set MONGODB_URI in .env
+ * Or set MONGODB_URI in .env and PANCAKE_SEED_JSON for the JSON path.
  */
 import path from 'path';
 import dotenv from 'dotenv';
@@ -24,7 +24,16 @@ if (!uri) {
   process.exit(1);
 }
 
-const jsonPath = path.join(__dirname, '..', 'invoiceData.json');
+const jsonPath = String(
+  process.env.PANCAKE_SEED_JSON || process.env.SEED_JSON_PATH || ''
+).trim();
+if (!jsonPath) {
+  console.error(
+    'Set PANCAKE_SEED_JSON (or SEED_JSON_PATH) to a JSON file containing an array of invoice rows.'
+  );
+  process.exit(1);
+}
+
 if (!fs.existsSync(jsonPath)) {
   console.error('File not found:', jsonPath);
   process.exit(1);

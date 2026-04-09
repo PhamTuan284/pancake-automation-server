@@ -39,7 +39,6 @@
       "invoiceExcel.ts",
       "pancakeAutomation.ts",
       "types",
-      "invoiceData.json",
       ".env"
     ],
     "ignore": [

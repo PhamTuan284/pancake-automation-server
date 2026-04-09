@@ -5,10 +5,14 @@ import http from 'http';
 import { runPancakeFlow } from './pancakeAutomation';
 import {
   parseExcelBuffer,
-  saveInvoiceDataToDisk,
-  loadInvoiceDataNormalized,
   normalizeInvoiceRow,
+  buildInvoiceExcelTemplateBuffer,
 } from './invoiceExcel';
+import {
+  loadInvoiceClientsFromDb,
+  replaceAllRows,
+  useMongo,
+} from './invoiceStore';
 import type { InvoiceRow } from './types/invoice';
 
 const app = express();
@@ -29,21 +33,33 @@ const upload = multer({
 
 let running = false;
 
-app.get('/invoice-data', (_req, res) => {
+app.get('/invoice-data', async (_req, res) => {
+  if (!useMongo()) {
+    return res.status(503).json({
+      error:
+        'Bảng dữ liệu chỉ đọc từ MongoDB. Đặt MONGODB_URI hoặc MONGO_URL trong .env (server).',
+    });
+  }
   try {
-    const rows = loadInvoiceDataNormalized();
+    const rows = await loadInvoiceClientsFromDb();
     res.json({ rows, count: rows.length });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Không đọc được invoiceData.json' });
+    res.status(500).json({ error: 'Không đọc được dữ liệu từ MongoDB' });
   }
 });
 
 /**
- * Replace entire invoiceData.json. Body: { rows: [...] }.
+ * Replace all rows in MongoDB `invoice_clients`. Body: { rows: [...] }.
  * Mỗi dòng cần ít nhất Tên khách hàng hoặc Tên đơn vị (sau khi trim).
  */
-app.put('/invoice-data', (req, res) => {
+app.put('/invoice-data', async (req, res) => {
+  if (!useMongo()) {
+    return res.status(503).json({
+      error:
+        'Chỉ lưu vào MongoDB. Đặt MONGODB_URI hoặc MONGO_URL trong .env (server).',
+    });
+  }
   try {
     const body = req.body as { rows?: unknown[] } | undefined;
     if (!body || !Array.isArray(body.rows)) {
@@ -62,18 +78,38 @@ app.put('/invoice-data', (req, res) => {
         });
       }
     }
-    saveInvoiceDataToDisk(normalized);
+    await replaceAllRows(normalized);
     res.json({ ok: true, count: normalized.length });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Không lưu được invoiceData.json' });
+    res.status(500).json({ error: 'Không lưu được dữ liệu khách hàng' });
   }
 });
 
+/** Download empty .xlsx with correct header row for `/upload-invoice-excel`. */
+app.get('/invoice-excel-template', (_req, res) => {
+  const buf = buildInvoiceExcelTemplateBuffer();
+  res.setHeader(
+    'Content-Type',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  );
+  res.setHeader(
+    'Content-Disposition',
+    'attachment; filename="mau-khach-hang-hoa-don-dien-tu.xlsx"'
+  );
+  res.send(buf);
+});
+
 app.post('/upload-invoice-excel', (req, res) => {
-  upload.single('file')(req, res, (multerErr) => {
+  upload.single('file')(req, res, async (multerErr) => {
     if (multerErr) {
       return res.status(400).json({ error: multerErr.message || 'Upload lỗi' });
+    }
+    if (!useMongo()) {
+      return res.status(503).json({
+        error:
+          'Upload chỉ ghi vào MongoDB. Đặt MONGODB_URI hoặc MONGO_URL trong .env (server).',
+      });
     }
     try {
       if (!req.file?.buffer) {
@@ -86,11 +122,22 @@ app.post('/upload-invoice-excel', (req, res) => {
             'Không có dòng dữ liệu hợp lệ (cần ít nhất Tên khách hàng hoặc Tên đơn vị)',
         });
       }
-      saveInvoiceDataToDisk(data);
+      try {
+        await replaceAllRows(data);
+      } catch (persistErr) {
+        console.error(persistErr);
+        return res.status(500).json({
+          error:
+            persistErr instanceof Error
+              ? persistErr.message
+              : 'Không lưu được dữ liệu sau upload',
+        });
+      }
       res.json({ ok: true, count: data.length });
     } catch (err) {
       console.error(err);
-      const message = err instanceof Error ? err.message : 'Không đọc được file Excel';
+      const message =
+        err instanceof Error ? err.message : 'Không đọc được file Excel';
       res.status(400).json({ error: message });
     }
   });

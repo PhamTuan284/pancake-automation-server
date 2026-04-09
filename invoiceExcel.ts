@@ -1,9 +1,5 @@
-import fs from 'fs';
-import path from 'path';
 import xlsx from 'xlsx';
 import type { InvoiceRow } from './types/invoice';
-
-const INVOICE_DATA_PATH = path.join(__dirname, 'invoiceData.json');
 
 /** Excel column titles → JSON keys (first sheet, row 1). */
 const EXCEL_HEADERS = {
@@ -46,7 +42,7 @@ function cell(row: unknown[], colIndex: number): string {
   return trimStr(v);
 }
 
-function parseExcelRows(rows: unknown[][]): InvoiceRow[] {
+export function parseExcelRows(rows: unknown[][]): InvoiceRow[] {
   if (!rows || rows.length === 0) {
     return [];
   }
@@ -80,7 +76,7 @@ function parseExcelRows(rows: unknown[][]): InvoiceRow[] {
   return out;
 }
 
-function parseExcelBuffer(buffer: Buffer): InvoiceRow[] {
+export function parseExcelBuffer(buffer: Buffer): InvoiceRow[] {
   const wb = xlsx.read(buffer, { type: 'buffer' });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = xlsx.utils.sheet_to_json(ws, {
@@ -90,24 +86,7 @@ function parseExcelBuffer(buffer: Buffer): InvoiceRow[] {
   return parseExcelRows(rows);
 }
 
-function loadInvoiceDataFromDisk(): unknown[] {
-  if (!fs.existsSync(INVOICE_DATA_PATH)) {
-    return [];
-  }
-  const raw = fs.readFileSync(INVOICE_DATA_PATH, 'utf8');
-  const data = JSON.parse(raw) as unknown;
-  return Array.isArray(data) ? data : [];
-}
-
-function saveInvoiceDataToDisk(data: InvoiceRow[]): void {
-  fs.writeFileSync(
-    INVOICE_DATA_PATH,
-    JSON.stringify(data, null, 2),
-    'utf8'
-  );
-}
-
-/** Normalize one row so UI / older code always sees every key. */
+/** Normalize one row so UI / API always sees every key. */
 export function normalizeInvoiceRow(r: Partial<InvoiceRow> | null | undefined): InvoiceRow {
   return {
     buyerName: trimStr(r?.buyerName),
@@ -120,15 +99,12 @@ export function normalizeInvoiceRow(r: Partial<InvoiceRow> | null | undefined): 
   };
 }
 
-function loadInvoiceDataNormalized(): InvoiceRow[] {
-  return loadInvoiceDataFromDisk().map((r) =>
-    normalizeInvoiceRow(r as Partial<InvoiceRow>)
-  );
+/** One-sheet .xlsx with row 1 = expected Vietnamese column titles (upload parser). */
+export function buildInvoiceExcelTemplateBuffer(): Buffer {
+  const headerRow = Object.values(EXCEL_HEADERS) as string[];
+  const ws = xlsx.utils.aoa_to_sheet([headerRow]);
+  const wb = xlsx.utils.book_new();
+  xlsx.utils.book_append_sheet(wb, ws, 'Sheet1');
+  const out = xlsx.write(wb, { bookType: 'xlsx', type: 'buffer' });
+  return Buffer.isBuffer(out) ? out : Buffer.from(out as Uint8Array);
 }
-
-export {
-  parseExcelBuffer,
-  parseExcelRows,
-  saveInvoiceDataToDisk,
-  loadInvoiceDataNormalized,
-};

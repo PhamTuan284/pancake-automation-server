@@ -7,6 +7,7 @@ import net from 'net';
 import { spawn, type ChildProcess } from 'child_process';
 import chromedriver from 'chromedriver';
 import type { InvoiceRow } from './types/invoice';
+import { loadNormalizedRows } from './invoiceStore';
 
 dotenv.config({ path: path.join(__dirname, '.env') });
 
@@ -21,13 +22,6 @@ const POS_HOME_URL = 'https://pos.pancake.vn/';
 
 /** Successful POS login lands here; `getUrl()` may include query/hash. */
 const POS_DASHBOARD_URL_SNIPPET = 'pos.pancake.vn/dashboard';
-
-function loadInvoiceData(): InvoiceRow[] {
-  const p = path.join(__dirname, 'invoiceData.json');
-  const raw = fs.readFileSync(p, 'utf8');
-  const data = JSON.parse(raw) as unknown;
-  return Array.isArray(data) ? (data as InvoiceRow[]) : [];
-}
 
 const FILLED_INVOICES_FILE = path.join(__dirname, 'filledInvoices.json');
 
@@ -980,7 +974,7 @@ async function loginToPancake(browser: WdioBrowser) {
 }
 
 export async function runPancakeFlow() {
-  const invoiceRows = loadInvoiceData();
+  const invoiceRows = await loadNormalizedRows();
   let driverChild: ChildProcess | null = null;
 
   const { port, child } = await startChromeDriver();
