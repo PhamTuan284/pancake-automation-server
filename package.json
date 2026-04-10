@@ -36,8 +36,11 @@
       "index.ts",
       "invoiceStore.ts",
       "models/InvoiceClient.ts",
+      "models/PancakeWebhookEvent.ts",
       "invoiceExcel.ts",
       "pancakeAutomation.ts",
+      "pancakeWebhook.ts",
+      "integrations.ts",
       "types",
       ".env"
     ],

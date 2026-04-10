@@ -4,6 +4,13 @@ import multer from 'multer';
 import http from 'http';
 import { runPancakeFlow } from './pancakeAutomation';
 import {
+  handlePancakeWebhookClearDelete,
+  handlePancakeWebhookConfigGet,
+  handlePancakeWebhookEventsGet,
+  handlePancakeWebhookPost,
+  handlePancakeWebhookRegisterPost,
+} from './pancakeWebhook';
+import {
   parseExcelBuffer,
   normalizeInvoiceRow,
   buildInvoiceExcelTemplateBuffer,
@@ -14,10 +21,11 @@ import {
   useMongo,
 } from './invoiceStore';
 import type { InvoiceRow } from './types/invoice';
+import { handleIntegrationsGet } from './integrations';
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '5mb' }));
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -143,6 +151,27 @@ app.post('/upload-invoice-excel', (req, res) => {
   });
 });
 
+/** Pancake POS POSTs JSON here when webhook is enabled. See https://api-docs.pancake.vn/#tag/webhook/put/shopsshop_id */
+app.post('/webhooks/pancake', (req, res) => {
+  void handlePancakeWebhookPost(req, res);
+});
+
+app.get('/pancake-webhook/config', (req, res) => {
+  handlePancakeWebhookConfigGet(req, res);
+});
+
+app.get('/pancake-webhook/events', (req, res) => {
+  void handlePancakeWebhookEventsGet(req, res);
+});
+
+app.post('/pancake-webhook/register', (req, res) => {
+  void handlePancakeWebhookRegisterPost(req, res);
+});
+
+app.delete('/pancake-webhook/events', (req, res) => {
+  void handlePancakeWebhookClearDelete(req, res);
+});
+
 app.post('/run-einvoice-automation', async (_req, res) => {
   if (running) {
     return res.status(409).json({ error: 'Automation already running' });
@@ -157,6 +186,11 @@ app.post('/run-einvoice-automation', async (_req, res) => {
   } finally {
     running = false;
   }
+});
+
+/** Horilla + EspoCRM URLs & reachability (Docker stack: docker-compose.integrations.yml). */
+app.get('/integrations', (_req, res) => {
+  void handleIntegrationsGet(_req, res);
 });
 
 app.get('/health', (_req, res) => {
