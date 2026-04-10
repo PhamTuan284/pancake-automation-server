@@ -41,6 +41,7 @@
       "pancakeAutomation.ts",
       "pancakeWebhook.ts",
       "integrations.ts",
+      "pancakeBrowserExecuteScripts.ts",
       "types",
       ".env"
     ],

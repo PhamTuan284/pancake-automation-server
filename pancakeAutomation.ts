@@ -8,6 +8,13 @@ import { spawn, type ChildProcess } from 'child_process';
 import chromedriver from 'chromedriver';
 import type { InvoiceRow } from './types/invoice';
 import { loadNormalizedRows } from './invoiceStore';
+import {
+  buildExecTryFillInvoiceIdHeuristic,
+  EXEC_DISCOVER_INVOICE_URL_FROM_LINKS,
+  EXEC_DISCOVER_SHOP_ID,
+  EXEC_LOGIN_DEBUG_SNIPPETS,
+  EXEC_SCROLL_INVOICE_MODAL_BODY,
+} from './pancakeBrowserExecuteScripts';
 
 dotenv.config({ path: path.join(__dirname, '.env') });
 
@@ -460,12 +467,7 @@ async function waitInvoiceModal(browser: WdioBrowser) {
 
 /** Scroll e-invoice modal body so lower fields (e.g. CCCD) are in the DOM viewport. */
 async function scrollInvoiceModalBodyToEnd(browser: WdioBrowser) {
-  await browser.execute(() => {
-    const b = document.querySelector('.ant-modal-body');
-    if (b && typeof b.scrollTop === 'number') {
-      b.scrollTop = b.scrollHeight;
-    }
-  });
+  await browser.execute(EXEC_SCROLL_INVOICE_MODAL_BODY);
   await browser.pause(300);
 }
 
@@ -682,84 +684,7 @@ async function tryFillInvoiceIdFieldHeuristic(
     return false;
   }
 
-  const ok = await browser.execute((v: string) => {
-    function setNativeValue(
-      inputEl: HTMLInputElement | HTMLTextAreaElement,
-      val: string
-    ) {
-      const Proto =
-        inputEl instanceof HTMLTextAreaElement
-          ? HTMLTextAreaElement
-          : HTMLInputElement;
-      const desc = Object.getOwnPropertyDescriptor(Proto.prototype, 'value');
-      if (desc && desc.set) {
-        desc.set.call(inputEl, val);
-      } else {
-        inputEl.value = val;
-      }
-      inputEl.dispatchEvent(new Event('input', { bubbles: true }));
-      inputEl.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-
-    const root = document.querySelector('.ant-modal-body');
-    if (!root) {
-      return false;
-    }
-
-    const nodes = Array.from(
-      root.querySelectorAll('input, textarea')
-    ) as (HTMLInputElement | HTMLTextAreaElement)[];
-    const candidates = nodes.filter((inputEl) => {
-      const t = (inputEl.type || '').toLowerCase();
-      if (
-        t === 'hidden' ||
-        t === 'checkbox' ||
-        t === 'radio' ||
-        t === 'submit' ||
-        t === 'button' ||
-        t === 'file' ||
-        t === 'search'
-      ) {
-        return false;
-      }
-      if (
-        inputEl.closest(
-          '.ant-select, .ant-picker, .ant-cascader, .ant-auto-complete, .ant-input-search'
-        )
-      ) {
-        return false;
-      }
-      if (inputEl.getAttribute('role') === 'combobox') {
-        return false;
-      }
-      if (inputEl.disabled || inputEl.readOnly) {
-        return false;
-      }
-      const r = inputEl.getBoundingClientRect();
-      if (r.width < 2 || r.height < 2) {
-        return false;
-      }
-      const st = window.getComputedStyle(inputEl);
-      if (st.visibility === 'hidden' || st.display === 'none') {
-        return false;
-      }
-      return true;
-    });
-
-    if (candidates.length === 0) {
-      return false;
-    }
-
-    const lastEmpty = [...candidates]
-      .reverse()
-      .find((inputEl) => !String(inputEl.value || '').trim());
-    const target = lastEmpty || candidates[candidates.length - 1];
-
-    target.scrollIntoView({ block: 'center' });
-    target.focus();
-    setNativeValue(target, v);
-    return true;
-  }, str);
+  const ok = await browser.execute(buildExecTryFillInvoiceIdHeuristic(str));
 
   if (ok) {
     console.log(
@@ -1015,29 +940,7 @@ function invoiceUrlCandidates(): string[] {
 async function discoverInvoiceUrlFromPage(
   browser: WdioBrowser
 ): Promise<string | null> {
-  const found = await browser.execute(() => {
-    const links = Array.from(
-      document.querySelectorAll('a[href]')
-    ) as HTMLAnchorElement[];
-    const hrefs = links.map((a) => (a.href || '').trim()).filter(Boolean);
-    const eInvoice = hrefs.find((h) =>
-      /\/shop\/\d+\/e-invoices(?:[/?#]|$)/i.test(h)
-    );
-    if (eInvoice) return eInvoice;
-    const shopRoot = hrefs.find((h) => /\/shop\/\d+(?:[/?#]|$)/i.test(h));
-    if (shopRoot) {
-      try {
-        const u = new URL(shopRoot);
-        const m = u.pathname.match(/\/shop\/(\d+)/i);
-        if (m && m[1]) {
-          return `${u.origin}/shop/${m[1]}/e-invoices`;
-        }
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  });
+  const found = await browser.execute(EXEC_DISCOVER_INVOICE_URL_FROM_LINKS);
   return typeof found === 'string' && found ? found : null;
 }
 
@@ -1048,59 +951,7 @@ function buildInvoiceUrlFromShopId(shopId: string | number): string {
 async function discoverShopIdFromBrowser(
   browser: WdioBrowser
 ): Promise<string | null> {
-  const result = await browser.execute(() => {
-    const out: { shopId: string | null; source: string | null } = {
-      shopId: null,
-      source: null,
-    };
-
-    function pickShopId(text: string | null | undefined): string | null {
-      if (!text) return null;
-      const m1 = text.match(/\/shop\/(\d+)/i);
-      if (m1 && m1[1]) return m1[1];
-      const m2 = text.match(/\bshop[_-]?id\b["'=: ]+(\d{6,})/i);
-      if (m2 && m2[1]) return m2[1];
-      return null;
-    }
-
-    const fromUrl = pickShopId(window.location.href);
-    if (fromUrl) return { shopId: fromUrl, source: 'location.href' };
-
-    const fromCookie = pickShopId(document.cookie);
-    if (fromCookie) return { shopId: fromCookie, source: 'document.cookie' };
-
-    try {
-      for (let i = 0; i < window.localStorage.length; i++) {
-        const k = window.localStorage.key(i);
-        if (!k) continue;
-        const v = window.localStorage.getItem(k) || '';
-        const fromKv = pickShopId(`${k}=${v}`);
-        if (fromKv) return { shopId: fromKv, source: `localStorage:${k}` };
-      }
-    } catch {
-      /* ignore localStorage restrictions */
-    }
-
-    try {
-      for (let i = 0; i < window.sessionStorage.length; i++) {
-        const k = window.sessionStorage.key(i);
-        if (!k) continue;
-        const v = window.sessionStorage.getItem(k) || '';
-        const fromKv = pickShopId(`${k}=${v}`);
-        if (fromKv) return { shopId: fromKv, source: `sessionStorage:${k}` };
-      }
-    } catch {
-      /* ignore sessionStorage restrictions */
-    }
-
-    const links = Array.from(document.querySelectorAll('a[href]')) as HTMLAnchorElement[];
-    for (const a of links) {
-      const sid = pickShopId(a.href || '');
-      if (sid) return { shopId: sid, source: 'anchor.href' };
-    }
-
-    return out;
-  });
+  const result = await browser.execute(EXEC_DISCOVER_SHOP_ID);
 
   if (result && typeof result === 'object') {
     const shopId = (result as { shopId?: unknown }).shopId;
@@ -1257,19 +1108,7 @@ async function findPhoneInput(browser: WdioBrowser): Promise<WdioElement | null>
 async function logLoginCandidates(browser: WdioBrowser): Promise<void> {
   try {
     await browser.switchToFrame(null);
-    const snippets = await browser.execute(() => {
-      const out: string[] = [];
-      const nodes = Array.from(
-        document.querySelectorAll('a,button,[role="button"]')
-      ) as HTMLElement[];
-      for (const n of nodes) {
-        const txt = (n.textContent || '').replace(/\s+/g, ' ').trim();
-        if (!txt) continue;
-        if (out.length >= 30) break;
-        out.push(txt.slice(0, 80));
-      }
-      return out;
-    });
+    const snippets = await browser.execute(EXEC_LOGIN_DEBUG_SNIPPETS);
     if (Array.isArray(snippets) && snippets.length > 0) {
       console.warn(
         `[login-debug] visible clickable texts: ${snippets.join(' | ')}`
