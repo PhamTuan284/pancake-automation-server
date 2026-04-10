@@ -27,8 +27,59 @@ const DEFAULT_INVOICE_URL =
 /** Marketing home; optional override PANCAKE_POS_HOME_URL */
 const POS_HOME_URL = 'https://pos.pancake.vn/';
 
-/** Successful POS login lands here; `getUrl()` may include query/hash. */
-const POS_DASHBOARD_URL_SNIPPET = 'pos.pancake.vn/dashboard';
+function isPosPancakeHost(hostname: string): boolean {
+  return hostname.replace(/^www\./i, '').toLowerCase() === 'pos.pancake.vn';
+}
+
+/**
+ * True when URL is inside the POS app with a real route (not marketing home `/` only).
+ * Pancake often skips `/dashboard` and opens `/shop/{id}/...` directly.
+ */
+function urlLooksLikePosWorkspace(url: string): boolean {
+  try {
+    const u = new URL(url);
+    if (!isPosPancakeHost(u.hostname)) return false;
+    const p = u.pathname || '';
+    if (p === '/' || p === '') return false;
+    if (p.includes('/dashboard')) return true;
+    if (/\/shop\/\d+/i.test(p)) return true;
+    if (p.includes('/e-invoices')) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForUrlSubstring(
+  browser: WdioBrowser,
+  needle: string,
+  timeoutMs: number,
+  pollMs: number
+): Promise<boolean> {
+  const n = needle.toLowerCase();
+  try {
+    await browser.waitUntil(
+      async () => (await browser.getUrl()).toLowerCase().includes(n),
+      { timeout: timeoutMs, interval: pollMs }
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** After `browser.url(invoiceUrl)`, wait for SPA/auth redirects (headless is slow). */
+function invoiceNavigationWaitMs(): number {
+  const v = Number(process.env.PANCAKE_INVOICE_NAV_WAIT_MS);
+  if (Number.isFinite(v) && v >= 3000) return Math.min(v, 120000);
+  return 32000;
+}
+
+function invoiceNavigationPollMs(): number {
+  const v = Number(process.env.PANCAKE_INVOICE_NAV_POLL_MS);
+  if (Number.isFinite(v) && v >= 200) return Math.min(v, 5000);
+  return 800;
+}
 
 /** Docker / Linux server: no X11 → headless. Override with PANCAKE_HEADLESS=0. */
 function useHeadlessChrome(): boolean {
@@ -891,28 +942,36 @@ async function waitForDashboardAfterLogin(
   const pollMs = Number(process.env.PANCAKE_DASHBOARD_POLL_MS) || 1500;
   try {
     await browser.waitUntil(
-      async () => (await browser.getUrl()).includes(POS_DASHBOARD_URL_SNIPPET),
+      async () => urlLooksLikePosWorkspace(await browser.getUrl()),
       {
         timeout: timeoutMs,
         interval: pollMs,
-        timeoutMsg: `Login did not redirect to https://pos.pancake.vn/dashboard within ${timeoutMs}ms`,
+        timeoutMsg: `Login did not reach POS workspace (dashboard / shop / e-invoices on pos.pancake.vn) within ${timeoutMs}ms`,
       }
+    );
+    console.log(
+      `[login] POS workspace detected: ${await browser.getUrl()}`
     );
     return true;
   } catch {
     // Some flows stay on account.pancake.vn but still hold a valid session.
     // Try opening the target page directly before failing hard.
     await browser.url(DEFAULT_INVOICE_URL);
-    await browser.pause(1800);
+    const ok = await waitForUrlSubstring(
+      browser,
+      '/e-invoices',
+      invoiceNavigationWaitMs(),
+      invoiceNavigationPollMs()
+    );
     const afterDirectNav = await browser.getUrl();
-    if (afterDirectNav.includes('/e-invoices')) {
+    if (ok || afterDirectNav.includes('/e-invoices')) {
       console.log(
-        '[login] Dashboard redirect missed; direct navigation to e-invoices succeeded.'
+        '[login] Workspace wait missed; direct navigation to e-invoices succeeded.'
       );
       return true;
     }
     console.warn(
-      `[login] Dashboard redirect missed and default direct e-invoice nav failed (current URL: ${afterDirectNav}). Continuing with URL discovery.`
+      `[login] Workspace + direct e-invoice nav failed (current URL: ${afterDirectNav}). Continuing with URL discovery.`
     );
     return false;
   }
@@ -948,6 +1007,64 @@ function buildInvoiceUrlFromShopId(shopId: string | number): string {
   return `https://pos.pancake.vn/shop/${String(shopId).trim()}/e-invoices`;
 }
 
+/** URLs that may eventually redirect to e-invoices after auth (SPA); use longer wait. */
+function candidateNeedsLongInvoiceWait(url: string): boolean {
+  return (
+    url.includes('/e-invoices') ||
+    /\/shop\/\d+/i.test(url) ||
+    url.includes('/dashboard')
+  );
+}
+
+async function navigateCandidateTowardEInvoice(
+  browser: WdioBrowser,
+  url: string
+): Promise<string | null> {
+  await browser.url(url);
+  const longWait = candidateNeedsLongInvoiceWait(url);
+  if (longWait) {
+    if (
+      await waitForUrlSubstring(
+        browser,
+        '/e-invoices',
+        invoiceNavigationWaitMs(),
+        invoiceNavigationPollMs()
+      )
+    ) {
+      return await browser.getUrl();
+    }
+  } else {
+    await browser.pause(2800);
+  }
+
+  let current = await browser.getUrl();
+  if (current.includes('/e-invoices')) {
+    return current;
+  }
+
+  const currentShop = current.match(/\/shop\/(\d+)/i);
+  if (currentShop && currentShop[1]) {
+    const derived = buildInvoiceUrlFromShopId(currentShop[1]);
+    await browser.url(derived);
+    if (
+      await waitForUrlSubstring(
+        browser,
+        '/e-invoices',
+        invoiceNavigationWaitMs(),
+        invoiceNavigationPollMs()
+      )
+    ) {
+      return await browser.getUrl();
+    }
+    current = await browser.getUrl();
+    if (current.includes('/e-invoices')) {
+      return current;
+    }
+  }
+
+  return null;
+}
+
 async function discoverShopIdFromBrowser(
   browser: WdioBrowser
 ): Promise<string | null> {
@@ -968,21 +1085,9 @@ async function resolveWorkingInvoiceUrl(browser: WdioBrowser): Promise<string> {
   const candidates = invoiceUrlCandidates();
   for (const url of candidates) {
     try {
-      await browser.url(url);
-      await browser.pause(2200);
-      const current = await browser.getUrl();
-      if (current.includes('/e-invoices')) {
-        return current;
-      }
-      const currentShop = current.match(/\/shop\/(\d+)/i);
-      if (currentShop && currentShop[1]) {
-        const derived = buildInvoiceUrlFromShopId(currentShop[1]);
-        await browser.url(derived);
-        await browser.pause(1800);
-        const derivedCurrent = await browser.getUrl();
-        if (derivedCurrent.includes('/e-invoices')) {
-          return derivedCurrent;
-        }
+      const resolved = await navigateCandidateTowardEInvoice(browser, url);
+      if (resolved) {
+        return resolved;
       }
     } catch {
       /* try next */
@@ -992,28 +1097,40 @@ async function resolveWorkingInvoiceUrl(browser: WdioBrowser): Promise<string> {
   const discoveredShopId = await discoverShopIdFromBrowser(browser);
   if (discoveredShopId) {
     const fromShopId = buildInvoiceUrlFromShopId(discoveredShopId);
-    await browser.url(fromShopId);
-    await browser.pause(1800);
-    const current = await browser.getUrl();
-    if (current.includes('/e-invoices')) {
-      return current;
+    const resolved = await navigateCandidateTowardEInvoice(browser, fromShopId);
+    if (resolved) {
+      return resolved;
     }
   }
 
   const discovered = await discoverInvoiceUrlFromPage(browser);
   if (discovered) {
-    await browser.url(discovered);
-    await browser.pause(1800);
-    const current = await browser.getUrl();
-    if (current.includes('/e-invoices')) {
-      return current;
+    const resolved = await navigateCandidateTowardEInvoice(browser, discovered);
+    if (resolved) {
+      return resolved;
+    }
+  }
+
+  const trust = String(process.env.PANCAKE_INVOICE_URL_TRUST || '')
+    .trim()
+    .toLowerCase();
+  if (trust === '1' || trust === 'true') {
+    const explicit = String(process.env.PANCAKE_INVOICE_URL || '').trim();
+    if (
+      explicit &&
+      /^https:\/\/pos\.pancake\.vn\/shop\/\d+\/e-invoices/i.test(explicit)
+    ) {
+      console.warn(
+        '[login] PANCAKE_INVOICE_URL_TRUST: proceeding with configured invoice URL (URL bar did not show /e-invoices — likely not logged in or site changed).'
+      );
+      return explicit.replace(/\/+$/, '');
     }
   }
 
   throw new Error(
     `Could not resolve a working e-invoices URL after login. Tried: ${candidates.join(
       ', '
-    )}. Set PANCAKE_INVOICE_URL to your real shop URL, e.g. https://pos.pancake.vn/shop/<shopId>/e-invoices`
+    )}. Ensure credentials work (try PANCAKE_PREFER_ACCOUNTS_LOGIN=1 or PANCAKE_LOGIN_URLS=https://accounts.pancake.vn/login). Increase waits: PANCAKE_INVOICE_NAV_WAIT_MS=45000. If you accept unverified URL: PANCAKE_INVOICE_URL_TRUST=1 with PANCAKE_INVOICE_URL=...`
   );
 }
 
@@ -1127,6 +1244,16 @@ function loginUrlCandidates(homeUrl: string): string[] {
       .map((s) => s.trim())
       .filter(Boolean);
   }
+  const preferAccounts =
+    String(process.env.PANCAKE_PREFER_ACCOUNTS_LOGIN || '').trim() === '1';
+  if (preferAccounts) {
+    return [
+      'https://accounts.pancake.vn/login',
+      'https://accounts.pancake.vn/sign-in',
+      homeUrl,
+      'https://pos.pancake.vn/login',
+    ];
+  }
   return [
     homeUrl,
     'https://accounts.pancake.vn/login',
@@ -1158,8 +1285,8 @@ async function loginToPancake(browser: WdioBrowser): Promise<string> {
       continue;
     }
     const currentUrl = await browser.getUrl();
-    if (currentUrl.includes(POS_DASHBOARD_URL_SNIPPET)) {
-      console.log('[login] Dashboard already detected; skipping login form.');
+    if (urlLooksLikePosWorkspace(currentUrl)) {
+      console.log('[login] POS workspace already open; skipping login form.');
       return resolveWorkingInvoiceUrl(browser);
     }
 
@@ -1259,8 +1386,12 @@ export async function runPancakeFlow() {
     '--disable-dev-shm-usage',
     '--disable-extensions',
     '--no-first-run',
-    '--incognito',
   ];
+  if (String(process.env.PANCAKE_INCOGNITO || '1').trim() !== '0') {
+    chromeArgs.push('--incognito');
+  } else {
+    console.log('[automation] PANCAKE_INCOGNITO=0 — not using incognito (persistent profile behavior).');
+  }
   if (headless) {
     chromeArgs.push('--headless=new', '--window-size=1920,1080');
   } else {

@@ -282,3 +282,55 @@ export async function handlePancakeWebhookRegisterPost(
     });
   }
 }
+
+/** GET …/shops/{SHOP_ID}/warehouses — see https://api-docs.pancake.vn/#tag/kho-h%C3%A0ng/GET/shops/{SHOP_ID}/warehouses */
+export async function handlePancakeWarehousesGet(
+  _req: Request,
+  res: Response
+): Promise<void> {
+  const apiKey = String(process.env.PANCAKE_API_KEY || '').trim();
+  if (!apiKey) {
+    res.status(503).json({
+      error:
+        'Đặt PANCAKE_API_KEY trong .env để gọi Open API (danh sách kho).',
+    });
+    return;
+  }
+
+  const shopId = String(
+    process.env.PANCAKE_SHOP_ID || DEFAULT_SHOP_ID
+  ).trim();
+
+  const base = String(process.env.PANCAKE_API_BASE || DEFAULT_API_BASE)
+    .trim()
+    .replace(/\/+$/, '');
+  const url = `${base}/shops/${encodeURIComponent(shopId)}/warehouses?api_key=${encodeURIComponent(apiKey)}`;
+
+  try {
+    const r = await fetch(url);
+    const text = await r.text();
+    let json: unknown;
+    try {
+      json = JSON.parse(text) as unknown;
+    } catch {
+      json = { raw: text };
+    }
+    if (!r.ok) {
+      res.status(r.status === 401 || r.status === 403 ? 401 : 502).json({
+        error: 'Pancake API từ chối yêu cầu. Kiểm tra API key và shop ID.',
+        status: r.status,
+        body: json,
+      });
+      return;
+    }
+    res.json({ ok: true, shopId, data: json });
+  } catch (e) {
+    console.error('[pancake-webhook] warehouses failed:', e);
+    res.status(502).json({
+      error:
+        e instanceof Error
+          ? e.message
+          : 'Không gọi được API Pancake (mạng / DNS).',
+    });
+  }
+}
