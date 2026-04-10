@@ -44,6 +44,16 @@ const upload = multer({
 });
 
 let running = false;
+let runSeq = 0;
+let currentRunId: string | null = null;
+let lastRun: {
+  runId: string;
+  status: 'running' | 'completed' | 'failed';
+  startedAt: string;
+  finishedAt: string | null;
+  durationMs: number | null;
+  error: string | null;
+} | null = null;
 
 app.get('/invoice-data', async (_req, res) => {
   if (!useMongo()) {
@@ -194,18 +204,69 @@ app.get('/pancake-webhook/customers', (req, res) => {
 
 app.post('/run-einvoice-automation', async (_req, res) => {
   if (running) {
-    return res.status(409).json({ error: 'Automation already running' });
+    return res.status(409).json({
+      error: 'Automation already running',
+      runId: currentRunId,
+      running: true,
+    });
   }
   running = true;
+  runSeq += 1;
+  currentRunId = `run-${Date.now()}-${runSeq}`;
+  const startedAtIso = new Date().toISOString();
+  const startedMs = Date.now();
+  lastRun = {
+    runId: currentRunId,
+    status: 'running',
+    startedAt: startedAtIso,
+    finishedAt: null,
+    durationMs: null,
+    error: null,
+  };
   try {
     await runPancakeFlow();
-    res.json({ status: 'completed' });
+    const finishedAtIso = new Date().toISOString();
+    const durationMs = Date.now() - startedMs;
+    lastRun = {
+      runId: currentRunId,
+      status: 'completed',
+      startedAt: startedAtIso,
+      finishedAt: finishedAtIso,
+      durationMs,
+      error: null,
+    };
+    res.json({ status: 'completed', runId: currentRunId, durationMs });
   } catch (err) {
     console.error('Automation failed:', err);
-    res.status(500).json({ error: 'Automation failed, see server logs.' });
+    const msg = err instanceof Error ? err.message : String(err);
+    const finishedAtIso = new Date().toISOString();
+    const durationMs = Date.now() - startedMs;
+    lastRun = {
+      runId: currentRunId,
+      status: 'failed',
+      startedAt: startedAtIso,
+      finishedAt: finishedAtIso,
+      durationMs,
+      error: msg,
+    };
+    res.status(500).json({
+      error: 'Automation failed, see server logs.',
+      runId: currentRunId,
+      durationMs,
+      details: msg,
+    });
   } finally {
     running = false;
+    currentRunId = null;
   }
+});
+
+app.get('/automation-status', (_req, res) => {
+  res.json({
+    running,
+    currentRunId,
+    lastRun,
+  });
 });
 
 /** Horilla + EspoCRM URLs & reachability (Docker stack: docker-compose.integrations.yml). */
@@ -214,7 +275,13 @@ app.get('/integrations', (_req, res) => {
 });
 
 app.get('/health', (_req, res) => {
-  res.json({ ok: true, automationRunning: running });
+  res.json({
+    ok: true,
+    automationRunning: running,
+    currentRunId,
+    lastRunStatus: lastRun?.status || null,
+    lastRunAt: lastRun?.finishedAt || lastRun?.startedAt || null,
+  });
 });
 
 /** Default 4001 so dev works when another app already uses 4000; override with PORT. */

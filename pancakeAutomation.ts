@@ -910,6 +910,109 @@ function getLoginCredentials() {
   return { phone: String(phone).trim(), password: String(password) };
 }
 
+type SessionCookieLike = {
+  name: string;
+  value: string;
+  domain?: string;
+  path?: string;
+  secure?: boolean;
+  httpOnly?: boolean;
+  expiry?: number;
+  sameSite?: 'Strict' | 'Lax' | 'None';
+};
+
+function parseCookieHeader(raw: string): SessionCookieLike[] {
+  return raw
+    .split(';')
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((kv) => {
+      const i = kv.indexOf('=');
+      if (i <= 0) return null;
+      const name = kv.slice(0, i).trim();
+      const value = kv.slice(i + 1).trim();
+      if (!name) return null;
+      return {
+        name,
+        value,
+        domain: '.pancake.vn',
+        path: '/',
+        secure: true,
+      } as SessionCookieLike;
+    })
+    .filter((c): c is SessionCookieLike => Boolean(c));
+}
+
+function loadSessionBootstrapCookies(): SessionCookieLike[] {
+  const jsonRaw = String(process.env.PANCAKE_SESSION_COOKIES_JSON || '').trim();
+  if (jsonRaw) {
+    try {
+      const parsed = JSON.parse(jsonRaw) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed
+          .filter((x): x is Record<string, unknown> => Boolean(x) && typeof x === 'object')
+          .map((x) => {
+            const name = String(x.name || '').trim();
+            const value = String(x.value || '');
+            if (!name) return null;
+            const out: SessionCookieLike = { name, value };
+            if (x.domain != null) out.domain = String(x.domain);
+            if (x.path != null) out.path = String(x.path);
+            if (x.secure != null) out.secure = Boolean(x.secure);
+            if (x.httpOnly != null) out.httpOnly = Boolean(x.httpOnly);
+            if (x.expiry != null && Number.isFinite(Number(x.expiry))) {
+              out.expiry = Number(x.expiry);
+            }
+            if (
+              x.sameSite === 'Strict' ||
+              x.sameSite === 'Lax' ||
+              x.sameSite === 'None'
+            ) {
+              out.sameSite = x.sameSite;
+            }
+            return out;
+          })
+          .filter((c): c is SessionCookieLike => Boolean(c));
+      }
+    } catch (e) {
+      console.warn('[login] PANCAKE_SESSION_COOKIES_JSON is invalid JSON:', e);
+    }
+  }
+
+  const headerRaw = String(process.env.PANCAKE_SESSION_COOKIE_HEADER || '').trim();
+  if (headerRaw) {
+    return parseCookieHeader(headerRaw);
+  }
+  return [];
+}
+
+async function tryBootstrapSessionWithCookies(browser: WdioBrowser): Promise<boolean> {
+  const cookies = loadSessionBootstrapCookies();
+  if (cookies.length === 0) return false;
+
+  try {
+    // Must be on matching domain before setting cookies.
+    await browser.url('https://pos.pancake.vn/');
+    await browser.pause(600);
+    await browser.setCookies(
+      cookies.map((c) => ({
+        ...c,
+        domain: c.domain || '.pancake.vn',
+        path: c.path || '/',
+        secure: c.secure ?? true,
+      }))
+    );
+    console.log(`[login] Applied ${cookies.length} session cookie(s) from env.`);
+    const resolved = await resolveWorkingInvoiceUrl(browser);
+    console.log(`[login] Cookie bootstrap succeeded: ${resolved}`);
+    return true;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(`[login] Cookie bootstrap failed; fallback to UI login. ${msg}`);
+    return false;
+  }
+}
+
 /** Click first visible control whose text contains `text` (button / link / role=button). */
 async function clickElementContaining(browser: WdioBrowser, text: string) {
   const lit = xpathStringLiteral(text);
@@ -1345,6 +1448,10 @@ function loginUrlCandidates(homeUrl: string): string[] {
  */
 async function loginToPancake(browser: WdioBrowser): Promise<string> {
   const { phone, password } = getLoginCredentials();
+
+  if (await tryBootstrapSessionWithCookies(browser)) {
+    return resolveWorkingInvoiceUrl(browser);
+  }
 
   const homeUrl = process.env.PANCAKE_POS_HOME_URL || POS_HOME_URL;
   const candidates = loginUrlCandidates(homeUrl);
