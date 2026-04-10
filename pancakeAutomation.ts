@@ -935,6 +935,82 @@ async function clickElementContaining(browser: WdioBrowser, text: string) {
   return false;
 }
 
+/** Submit login form from root or iframe contexts. */
+async function clickAnyVisibleLoginSubmit(browser: WdioBrowser): Promise<boolean> {
+  const submitXPaths = [
+    '//button[contains(., "Đăng nhập")]',
+    '//*[self::button or self::a][contains(., "Đăng nhập")]',
+    '//button[contains(., "Login")]',
+    '//button[contains(., "Log in")]',
+  ];
+
+  async function clickInCurrentContext(): Promise<boolean> {
+    for (const xp of submitXPaths) {
+      const els = await browser.$$(xp);
+      for (const el of els) {
+        try {
+          if (!(await el.isDisplayed())) continue;
+          await el.click();
+          return true;
+        } catch {
+          /* try next */
+        }
+      }
+    }
+    const byType = await browser.$$('button[type="submit"],input[type="submit"]');
+    for (const el of byType) {
+      try {
+        if (!(await el.isDisplayed())) continue;
+        await el.click();
+        return true;
+      } catch {
+        /* try next */
+      }
+    }
+    return false;
+  }
+
+  await browser.switchToFrame(null);
+  if (await clickInCurrentContext()) return true;
+
+  const frames = await browser.$$('iframe, frame');
+  for (const frame of frames) {
+    try {
+      await browser.switchToFrame(frame);
+      if (await clickInCurrentContext()) {
+        await browser.switchToFrame(null);
+        return true;
+      }
+    } catch {
+      /* cross-origin/detached frame */
+    } finally {
+      try {
+        await browser.switchToFrame(null);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return false;
+}
+
+async function loginNeedsExtraVerification(browser: WdioBrowser): Promise<string | null> {
+  const current = (await browser.getUrl()).toLowerCase();
+  if (current.includes('accounts.pancake.vn')) {
+    const challengeTexts = ['Xác minh', 'OTP', 'mã xác thực', 'Verification code'];
+    for (const t of challengeTexts) {
+      const lit = xpathStringLiteral(t);
+      const el = await browser.$(`//*[contains(., ${lit})]`);
+      try {
+        if (await el.isExisting()) return t;
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return null;
+}
+
 async function waitForDashboardAfterLogin(
   browser: WdioBrowser
 ): Promise<boolean> {
@@ -1340,19 +1416,36 @@ async function loginToPancake(browser: WdioBrowser): Promise<string> {
   await passwordEl.clearValue();
   await passwordEl.setValue(password);
 
-  let loginBtn = await browser.$('//button[contains(., "Đăng nhập")]');
-  if (!(await loginBtn.isExisting())) {
-    loginBtn = await browser.$(
-      '//*[self::button or self::a][contains(., "Đăng nhập")]'
+  let submitted = await clickAnyVisibleLoginSubmit(browser);
+  if (!submitted) {
+    // Some login forms only submit on Enter.
+    try {
+      await passwordEl.click();
+      await browser.keys('Enter');
+      submitted = true;
+    } catch {
+      /* ignore */
+    }
+  }
+  if (!submitted) {
+    await captureLoginDebugArtifacts(
+      browser,
+      'Login submit button not found in root document or iframes'
+    );
+    throw new Error('Login: submit button not found');
+  }
+  await browser.pause(1200);
+
+  const verificationHint = await loginNeedsExtraVerification(browser);
+  if (verificationHint) {
+    await captureLoginDebugArtifacts(
+      browser,
+      `Login appears to require additional verification (${verificationHint})`
+    );
+    throw new Error(
+      `Login requires extra verification (${verificationHint}). Complete verification manually or use an account flow without OTP/challenge.`
     );
   }
-  if (!(await loginBtn.isExisting())) {
-    loginBtn = await browser.$('button[type="submit"]');
-  }
-  if (!(await loginBtn.isExisting())) {
-    throw new Error('Login: "Đăng nhập" button not found');
-  }
-  await loginBtn.click();
 
   const dashboardOrDefaultInvoiceReached =
     await waitForDashboardAfterLogin(browser);
