@@ -1002,7 +1002,13 @@ function invoiceUrlCandidates(): string[] {
         .map((s) => s.trim())
         .filter(Boolean)
     : [];
-  const all = [...fromEnv, single, DEFAULT_INVOICE_URL].filter(Boolean);
+  const globalFallbacks = [
+    'https://pos.pancake.vn/dashboard',
+    'https://pos.pancake.vn/',
+  ];
+  const all = [...fromEnv, single, DEFAULT_INVOICE_URL, ...globalFallbacks].filter(
+    Boolean
+  );
   return [...new Set(all)];
 }
 
@@ -1035,18 +1041,111 @@ async function discoverInvoiceUrlFromPage(
   return typeof found === 'string' && found ? found : null;
 }
 
+function buildInvoiceUrlFromShopId(shopId: string | number): string {
+  return `https://pos.pancake.vn/shop/${String(shopId).trim()}/e-invoices`;
+}
+
+async function discoverShopIdFromBrowser(
+  browser: WdioBrowser
+): Promise<string | null> {
+  const result = await browser.execute(() => {
+    const out: { shopId: string | null; source: string | null } = {
+      shopId: null,
+      source: null,
+    };
+
+    function pickShopId(text: string | null | undefined): string | null {
+      if (!text) return null;
+      const m1 = text.match(/\/shop\/(\d+)/i);
+      if (m1 && m1[1]) return m1[1];
+      const m2 = text.match(/\bshop[_-]?id\b["'=: ]+(\d{6,})/i);
+      if (m2 && m2[1]) return m2[1];
+      return null;
+    }
+
+    const fromUrl = pickShopId(window.location.href);
+    if (fromUrl) return { shopId: fromUrl, source: 'location.href' };
+
+    const fromCookie = pickShopId(document.cookie);
+    if (fromCookie) return { shopId: fromCookie, source: 'document.cookie' };
+
+    try {
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const k = window.localStorage.key(i);
+        if (!k) continue;
+        const v = window.localStorage.getItem(k) || '';
+        const fromKv = pickShopId(`${k}=${v}`);
+        if (fromKv) return { shopId: fromKv, source: `localStorage:${k}` };
+      }
+    } catch {
+      /* ignore localStorage restrictions */
+    }
+
+    try {
+      for (let i = 0; i < window.sessionStorage.length; i++) {
+        const k = window.sessionStorage.key(i);
+        if (!k) continue;
+        const v = window.sessionStorage.getItem(k) || '';
+        const fromKv = pickShopId(`${k}=${v}`);
+        if (fromKv) return { shopId: fromKv, source: `sessionStorage:${k}` };
+      }
+    } catch {
+      /* ignore sessionStorage restrictions */
+    }
+
+    const links = Array.from(document.querySelectorAll('a[href]')) as HTMLAnchorElement[];
+    for (const a of links) {
+      const sid = pickShopId(a.href || '');
+      if (sid) return { shopId: sid, source: 'anchor.href' };
+    }
+
+    return out;
+  });
+
+  if (result && typeof result === 'object') {
+    const shopId = (result as { shopId?: unknown }).shopId;
+    const source = (result as { source?: unknown }).source;
+    if (typeof shopId === 'string' && shopId.trim()) {
+      console.warn(`[login-debug] discovered shopId=${shopId} from ${String(source || 'unknown')}`);
+      return shopId.trim();
+    }
+  }
+  return null;
+}
+
 async function resolveWorkingInvoiceUrl(browser: WdioBrowser): Promise<string> {
   const candidates = invoiceUrlCandidates();
   for (const url of candidates) {
     try {
       await browser.url(url);
-      await browser.pause(1800);
+      await browser.pause(2200);
       const current = await browser.getUrl();
       if (current.includes('/e-invoices')) {
         return current;
       }
+      const currentShop = current.match(/\/shop\/(\d+)/i);
+      if (currentShop && currentShop[1]) {
+        const derived = buildInvoiceUrlFromShopId(currentShop[1]);
+        await browser.url(derived);
+        await browser.pause(1800);
+        const derivedCurrent = await browser.getUrl();
+        if (derivedCurrent.includes('/e-invoices')) {
+          return derivedCurrent;
+        }
+      }
     } catch {
       /* try next */
+    }
+  }
+
+  const discoveredShopId = await discoverShopIdFromBrowser(browser);
+  if (discoveredShopId) {
+    const fromShopId = buildInvoiceUrlFromShopId(discoveredShopId);
+    await browser.url(fromShopId);
+    await browser.pause(1800);
+    const current = await browser.getUrl();
+    if (current.includes('/e-invoices')) {
+      return current;
     }
   }
 
@@ -1063,7 +1162,7 @@ async function resolveWorkingInvoiceUrl(browser: WdioBrowser): Promise<string> {
   throw new Error(
     `Could not resolve a working e-invoices URL after login. Tried: ${candidates.join(
       ', '
-    )}`
+    )}. Set PANCAKE_INVOICE_URL to your real shop URL, e.g. https://pos.pancake.vn/shop/<shopId>/e-invoices`
   );
 }
 
