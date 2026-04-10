@@ -45,6 +45,92 @@ function verifyIncomingSecret(req: Request): boolean {
   return trimSecretHeader(req) === expected;
 }
 
+type PancakeCredentials = {
+  apiKey: string;
+  shopId: string;
+  base: string;
+};
+
+function getPancakeCredentials(): PancakeCredentials | null {
+  const apiKey = String(process.env.PANCAKE_API_KEY || '').trim();
+  if (!apiKey) return null;
+  const shopId = String(process.env.PANCAKE_SHOP_ID || DEFAULT_SHOP_ID).trim();
+  const base = String(process.env.PANCAKE_API_BASE || DEFAULT_API_BASE)
+    .trim()
+    .replace(/\/+$/, '');
+  return { apiKey, shopId, base };
+}
+
+/** Forwards query params from the client (e.g. page_size, search); api_key always comes from env. */
+function pancakeForwardedSearchParams(req: Request, apiKey: string): string {
+  const p = new URLSearchParams();
+  p.set('api_key', apiKey);
+  for (const [key, val] of Object.entries(req.query)) {
+    if (key.toLowerCase() === 'api_key') continue;
+    if (Array.isArray(val)) {
+      for (const item of val) {
+        if (item != null && String(item) !== '') {
+          p.append(key, String(item));
+        }
+      }
+    } else if (val != null && val !== '') {
+      p.append(key, String(val));
+    }
+  }
+  return p.toString();
+}
+
+/**
+ * GET …/shops/{SHOP_ID}/{pathAfterShop}?… — Open API proxy.
+ * `pathAfterShop` is the part after the shop id (e.g. `warehouses`, `list_einvoices/`, `products/variations`).
+ */
+async function forwardPancakeShopGet(
+  req: Request,
+  res: Response,
+  pathAfterShop: string,
+  logTag: string
+): Promise<void> {
+  const cred = getPancakeCredentials();
+  if (!cred) {
+    res.status(503).json({
+      error: 'Đặt PANCAKE_API_KEY trong .env để gọi Open API.',
+    });
+    return;
+  }
+  const { apiKey, shopId, base } = cred;
+  const relative = pathAfterShop.replace(/^\/+/, '');
+  const qs = pancakeForwardedSearchParams(req, apiKey);
+  const url = `${base}/shops/${encodeURIComponent(shopId)}/${relative}?${qs}`;
+
+  try {
+    const r = await fetch(url);
+    const text = await r.text();
+    let json: unknown;
+    try {
+      json = JSON.parse(text) as unknown;
+    } catch {
+      json = { raw: text };
+    }
+    if (!r.ok) {
+      res.status(r.status === 401 || r.status === 403 ? 401 : 502).json({
+        error: 'Pancake API từ chối yêu cầu. Kiểm tra API key và shop ID.',
+        status: r.status,
+        body: json,
+      });
+      return;
+    }
+    res.json({ ok: true, shopId, data: json });
+  } catch (e) {
+    console.error(`[pancake-open-api] ${logTag} failed:`, e);
+    res.status(502).json({
+      error:
+        e instanceof Error
+          ? e.message
+          : 'Không gọi được API Pancake (mạng / DNS).',
+    });
+  }
+}
+
 export async function handlePancakeWebhookPost(
   req: Request,
   res: Response
@@ -283,54 +369,34 @@ export async function handlePancakeWebhookRegisterPost(
   }
 }
 
-/** GET …/shops/{SHOP_ID}/warehouses — see https://api-docs.pancake.vn/#tag/kho-h%C3%A0ng/GET/shops/{SHOP_ID}/warehouses */
+/** GET …/shops/{SHOP_ID}/warehouses — https://api-docs.pancake.vn/#tag/kho-h%C3%A0ng/GET/shops/{SHOP_ID}/warehouses */
 export async function handlePancakeWarehousesGet(
-  _req: Request,
+  req: Request,
   res: Response
 ): Promise<void> {
-  const apiKey = String(process.env.PANCAKE_API_KEY || '').trim();
-  if (!apiKey) {
-    res.status(503).json({
-      error:
-        'Đặt PANCAKE_API_KEY trong .env để gọi Open API (danh sách kho).',
-    });
-    return;
-  }
+  await forwardPancakeShopGet(req, res, 'warehouses', 'warehouses');
+}
 
-  const shopId = String(
-    process.env.PANCAKE_SHOP_ID || DEFAULT_SHOP_ID
-  ).trim();
+/** GET …/shops/{SHOP_ID}/list_einvoices/ — https://api-docs.pancake.vn/#tag/h%C3%B3a-%C4%91%C6%A1n-%C4%91i%E1%BB%87n-t%E1%BB%AD */
+export async function handlePancakeEinvoicesListGet(
+  req: Request,
+  res: Response
+): Promise<void> {
+  await forwardPancakeShopGet(req, res, 'list_einvoices/', 'list_einvoices');
+}
 
-  const base = String(process.env.PANCAKE_API_BASE || DEFAULT_API_BASE)
-    .trim()
-    .replace(/\/+$/, '');
-  const url = `${base}/shops/${encodeURIComponent(shopId)}/warehouses?api_key=${encodeURIComponent(apiKey)}`;
+/** GET …/shops/{SHOP_ID}/products/variations — https://api-docs.pancake.vn/#tag/s%E1%BA%A3n-ph%E1%BA%A9m */
+export async function handlePancakeProductsVariationsGet(
+  req: Request,
+  res: Response
+): Promise<void> {
+  await forwardPancakeShopGet(req, res, 'products/variations', 'products/variations');
+}
 
-  try {
-    const r = await fetch(url);
-    const text = await r.text();
-    let json: unknown;
-    try {
-      json = JSON.parse(text) as unknown;
-    } catch {
-      json = { raw: text };
-    }
-    if (!r.ok) {
-      res.status(r.status === 401 || r.status === 403 ? 401 : 502).json({
-        error: 'Pancake API từ chối yêu cầu. Kiểm tra API key và shop ID.',
-        status: r.status,
-        body: json,
-      });
-      return;
-    }
-    res.json({ ok: true, shopId, data: json });
-  } catch (e) {
-    console.error('[pancake-webhook] warehouses failed:', e);
-    res.status(502).json({
-      error:
-        e instanceof Error
-          ? e.message
-          : 'Không gọi được API Pancake (mạng / DNS).',
-    });
-  }
+/** GET …/shops/{SHOP_ID}/customers — https://api-docs.pancake.vn/#tag/kh%C3%A1ch-h%C3%A0ng */
+export async function handlePancakeCustomersListGet(
+  req: Request,
+  res: Response
+): Promise<void> {
+  await forwardPancakeShopGet(req, res, 'customers', 'customers');
 }

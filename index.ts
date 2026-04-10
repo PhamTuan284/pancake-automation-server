@@ -10,6 +10,9 @@ import {
   handlePancakeWebhookPost,
   handlePancakeWebhookRegisterPost,
   handlePancakeWarehousesGet,
+  handlePancakeEinvoicesListGet,
+  handlePancakeProductsVariationsGet,
+  handlePancakeCustomersListGet,
 } from './pancakeWebhook';
 import {
   parseExcelBuffer,
@@ -175,6 +178,18 @@ app.delete('/pancake-webhook/events', (req, res) => {
 
 app.get('/pancake-webhook/warehouses', (req, res) => {
   void handlePancakeWarehousesGet(req, res);
+});
+
+app.get('/pancake-webhook/einvoices', (req, res) => {
+  void handlePancakeEinvoicesListGet(req, res);
+});
+
+app.get('/pancake-webhook/products/variations', (req, res) => {
+  void handlePancakeProductsVariationsGet(req, res);
+});
+
+app.get('/pancake-webhook/customers', (req, res) => {
+  void handlePancakeCustomersListGet(req, res);
 });
 
 app.post('/run-einvoice-automation', async (_req, res) => {
