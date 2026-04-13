@@ -1,6 +1,6 @@
 import type { Request } from 'express';
-import PancakeWebhookEvent from './models/PancakeWebhookEvent';
-import { connectMongo, useMongo } from './invoiceStore';
+import PancakeWebhookEvent from '../../../common/models/PancakeWebhookEvent';
+import { connectMongo, useMongo } from '../../../common/mongo';
 
 const DEFAULT_PANCAKE_API_BASE_URL = 'https://pos.pages.fm/api/v1';
 const MAX_WEBHOOK_EVENTS_IN_MEMORY = 200;

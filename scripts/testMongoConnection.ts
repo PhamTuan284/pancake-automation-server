@@ -9,7 +9,7 @@
 import path from 'path';
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
-import InvoiceClient from '../models/InvoiceClient';
+import InvoiceClient from '../common/models/InvoiceClient';
 
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 

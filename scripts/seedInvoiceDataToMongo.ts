@@ -10,9 +10,9 @@ import path from 'path';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import mongoose from 'mongoose';
-import { normalizeInvoiceRow } from '../invoiceExcel';
-import InvoiceClient from '../models/InvoiceClient';
-import type { InvoiceRow } from '../types/invoice';
+import { normalizeInvoiceRow } from '../features/pancake-einvoice/lib/invoiceExcel';
+import InvoiceClient from '../common/models/InvoiceClient';
+import type { InvoiceRow } from '../common/types/invoice';
 
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 

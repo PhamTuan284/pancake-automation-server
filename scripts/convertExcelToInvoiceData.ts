@@ -7,7 +7,7 @@
 import fs from 'fs';
 import path from 'path';
 import xlsx from 'xlsx';
-import { parseExcelRows } from '../invoiceExcel';
+import { parseExcelRows } from '../features/pancake-einvoice/lib/invoiceExcel';
 
 const excelPath =
   process.env.PANCAKE_EXCEL_PATH ||

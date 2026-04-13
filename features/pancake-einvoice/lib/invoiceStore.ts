@@ -1,34 +1,7 @@
-import mongoose from 'mongoose';
-import InvoiceClient from './models/InvoiceClient';
+import InvoiceClient from '../../../common/models/InvoiceClient';
+import { connectMongo, useMongo } from '../../../common/mongo';
 import { normalizeInvoiceRow } from './invoiceExcel';
-import type { InvoiceRow } from './types/invoice';
-
-/**
- * Railway’s MongoDB plugin usually exposes MONGO_URL.
- * You can also set MONGODB_URI in .env (Atlas, local, etc.).
- */
-export function mongoUri(): string {
-  return String(
-    process.env.MONGODB_URI || process.env.MONGO_URL || ''
-  ).trim();
-}
-
-export function useMongo(): boolean {
-  return mongoUri().length > 0;
-}
-
-export async function connectMongo(): Promise<void> {
-  if (!useMongo()) {
-    throw new Error('No MONGODB_URI or MONGO_URL');
-  }
-  if (mongoose.connection.readyState === 1) {
-    return;
-  }
-  await mongoose.connect(mongoUri(), {
-    maxPoolSize: 10,
-    serverSelectionTimeoutMS: 15000,
-  });
-}
+import type { InvoiceRow } from '../../../common/types/invoice';
 
 function docToRow(doc: {
   buyerName?: string;
@@ -98,9 +71,4 @@ export async function replaceAllRows(rows: InvoiceRow[]): Promise<void> {
   await replaceInvoiceClientsInMongo(rows);
 }
 
-export async function ensureMongoConnected(): Promise<void> {
-  if (!useMongo()) return;
-  await connectMongo();
-}
-
-export { normalizeInvoiceRow };
+export { useMongo, normalizeInvoiceRow };

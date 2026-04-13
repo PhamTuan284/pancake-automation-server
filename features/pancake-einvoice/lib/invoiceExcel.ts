@@ -1,5 +1,5 @@
 import xlsx from 'xlsx';
-import type { InvoiceRow } from './types/invoice';
+import type { InvoiceRow } from '../../../common/types/invoice';
 
 /** Excel column titles → JSON keys (first sheet, row 1). */
 const EXCEL_HEADERS = {
