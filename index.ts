@@ -4,6 +4,19 @@ import multer from 'multer';
 import http from 'http';
 import { runPancakeFlow } from './pancakeAutomation';
 import {
+  clearWebhookEvents,
+  fetchPancakeOpenApi,
+  getLegacyWebhookPanelConfig,
+  listWebhookEvents,
+  recordWebhookEventWithPersistence,
+  registerPancakeWebhook,
+  resolveWebhookReceiverPath,
+  shouldAutoRunFromWebhook,
+  updatePancakeWebhookConfig,
+  verifyWebhookSecret,
+  webhookEventStorageSource,
+} from './pancakeWebhook';
+import {
   parseExcelBuffer,
   normalizeInvoiceRow,
   buildInvoiceExcelTemplateBuffer,
@@ -32,6 +45,19 @@ const upload = multer({
 });
 
 let running = false;
+const legacyReceiverPath = resolveWebhookReceiverPath();
+
+async function triggerAutomationRun(): Promise<void> {
+  if (running) {
+    throw new Error('Automation already running');
+  }
+  running = true;
+  try {
+    await runPancakeFlow();
+  } finally {
+    running = false;
+  }
+}
 
 app.get('/invoice-data', async (_req, res) => {
   if (!useMongo()) {
@@ -144,19 +170,172 @@ app.post('/upload-invoice-excel', (req, res) => {
 });
 
 app.post('/run-einvoice-automation', async (_req, res) => {
-  if (running) {
-    return res.status(409).json({ error: 'Automation already running' });
-  }
-  running = true;
   try {
-    await runPancakeFlow();
+    await triggerAutomationRun();
     res.json({ status: 'completed' });
   } catch (err) {
+    if (err instanceof Error && err.message === 'Automation already running') {
+      return res.status(409).json({ error: err.message });
+    }
     console.error('Automation failed:', err);
     res.status(500).json({ error: 'Automation failed, see server logs.' });
-  } finally {
-    running = false;
   }
+});
+
+/**
+ * Update Pancake shop webhook config via OpenAPI:
+ * PUT https://pos.pages.fm/api/v1/shops/{SHOP_ID}?api_key=...
+ * Body: { shop: { webhook_enable, webhook_url, webhook_types, ... } }
+ */
+app.put('/pancake/webhook/config', async (req, res) => {
+  try {
+    const result = await updatePancakeWebhookConfig(
+      (req.body || {}) as Record<string, unknown>
+    );
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : 'Failed to update webhook config';
+    res.status(400).json({ ok: false, error: message });
+  }
+});
+
+app.get('/pancake-webhook/config', (_req, res) => {
+  res.json(getLegacyWebhookPanelConfig());
+});
+
+app.post('/pancake-webhook/register', async (req, res) => {
+  try {
+    const result = await registerPancakeWebhook(
+      (req.body || {}) as Record<string, unknown>
+    );
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : 'Failed to register webhook';
+    res.status(400).json({ ok: false, error: message });
+  }
+});
+
+function buildQueryFromRequest(req: express.Request): URLSearchParams {
+  const q = new URLSearchParams();
+  for (const [key, value] of Object.entries(req.query)) {
+    if (value == null) continue;
+    if (Array.isArray(value)) {
+      for (const v of value) {
+        if (v != null && String(v).trim() !== '') {
+          q.append(key, String(v));
+        }
+      }
+    } else if (String(value).trim() !== '') {
+      q.set(key, String(value));
+    }
+  }
+  return q;
+}
+
+async function proxyPancakeGet(
+  req: express.Request,
+  res: express.Response,
+  pathname: string
+) {
+  try {
+    const data = await fetchPancakeOpenApi(pathname, buildQueryFromRequest(req));
+    res.json({ ok: true, data });
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : 'Failed to call Pancake Open API';
+    res.status(400).json({ ok: false, error: message });
+  }
+}
+
+app.get('/pancake-webhook/warehouses', (req, res) => {
+  void proxyPancakeGet(req, res, '/warehouses');
+});
+
+app.get('/pancake-webhook/einvoices', (req, res) => {
+  void proxyPancakeGet(req, res, '/list_einvoices/');
+});
+
+app.get('/pancake-webhook/products/variations', (req, res) => {
+  void proxyPancakeGet(req, res, '/products/variations');
+});
+
+app.get('/pancake-webhook/customers', (req, res) => {
+  const q = buildQueryFromRequest(req);
+  if (!q.get('page_size')) {
+    q.set('page_size', '30');
+  }
+  if (!q.get('page_number')) {
+    q.set('page_number', '1');
+  }
+  void (async () => {
+    try {
+      const data = await fetchPancakeOpenApi('/customers', q);
+      res.json({ ok: true, data });
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Failed to call Pancake Open API';
+      res.status(400).json({ ok: false, error: message });
+    }
+  })();
+});
+
+/**
+ * Webhook receiver endpoint for Pancake.
+ * Configure this URL in Pancake "Webhook/API" setting.
+ */
+app.post('/pancake/webhook', async (req, res) => {
+  if (!verifyWebhookSecret(req)) {
+    return res.status(401).json({ success: false, error: 'Invalid webhook secret' });
+  }
+  const event = await recordWebhookEventWithPersistence(req);
+  console.log(`[webhook] Received type=${event.kind} at=${event.at}`);
+
+  if (shouldAutoRunFromWebhook()) {
+    if (running) {
+      console.log('[webhook] Automation already running, skipping auto-run trigger');
+    } else {
+      try {
+        await triggerAutomationRun();
+        console.log('[webhook] Auto-run completed');
+      } catch (err) {
+        console.error('[webhook] Auto-run failed:', err);
+      }
+    }
+  }
+
+  res.json({ success: true });
+});
+
+app.post(legacyReceiverPath, async (req, res) => {
+  if (!verifyWebhookSecret(req)) {
+    return res.status(401).json({ success: false, error: 'Invalid webhook secret' });
+  }
+  const event = await recordWebhookEventWithPersistence(req);
+  console.log(`[webhook] Received type=${event.kind} at=${event.at}`);
+  res.json({ success: true });
+});
+
+app.get('/pancake/webhook/events', async (req, res) => {
+  const events = await listWebhookEvents(req.query.limit);
+  res.json({ count: events.length, events });
+});
+
+app.get('/pancake-webhook/events', async (req, res) => {
+  const source = webhookEventStorageSource();
+  const events = (await listWebhookEvents(req.query.limit)).map((ev, i) => ({
+    id: ev.id || `${ev.at}-${i}`,
+    receivedAt: ev.at,
+    contentType: ev.contentType || String(ev.headers['content-type'] || ''),
+    payload: ev.payload,
+  }));
+  res.json({ events, source });
+});
+
+app.delete('/pancake-webhook/events', async (_req, res) => {
+  await clearWebhookEvents();
+  res.json({ ok: true });
 });
 
 app.get('/health', (_req, res) => {
