@@ -8,8 +8,13 @@ export const SEL = {
     '//div[contains(@class, "ant-table-row") and .//span[contains(text(), "Chưa phát hành")]]',
   virtualScroll: '.ant-table-tbody-virtual-holder',
   invoiceModal: '.ant-modal-content',
+  /**
+   * Draft-only save. Target the footer `button` whose full label is exactly "Lưu", not
+   * "Lưu và phát hành" (which can wrongly match `//span[normalize-space(.)="Lưu"]/ancestor::button`
+   * when the label is split across nodes).
+   */
   saveDraft:
-    '//div[contains(@class, "ant-modal-footer")]//span[normalize-space(.)="Lưu"]/ancestor::button[1]',
+    '//div[contains(@class, "ant-modal-footer")]//button[normalize-space(.)="Lưu"]',
 } as const;
 
 const XPATH_TEXTISH_CONTROL =

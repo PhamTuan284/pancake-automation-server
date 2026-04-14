@@ -331,13 +331,6 @@ export async function fillInvoiceForm(browser: WdioBrowser, data: InvoiceRow) {
     await btn.waitForDisplayed({ timeout: 10000 });
     await btn.click();
   } else {
-    const fallback = await browser.$(
-      '//div[contains(@class, "ant-modal-footer")]//button[normalize-space(.)="Lưu"]'
-    );
-    if (await fallback.isExisting()) {
-      await fallback.click();
-    } else {
-      console.warn('[skip] "Lưu" button not found');
-    }
+    console.warn('[skip] "Lưu" (draft only) button not found — not using "Lưu và phát hành"');
   }
 }
