@@ -26,6 +26,31 @@ export async function triggerAutomationRun(): Promise<void> {
 
 const serverRoot = path.join(__dirname, '..', '..');
 
+/**
+ * WDIO's ConfigParser runs `loadAutoCompilers` *before* merging `wdio.conf.*`, so the
+ * default `autoCompile: true` still enables ts-node and sets `WDIO_LOAD_TS_NODE=1`
+ * unless we pass `--autoCompileOpts.autoCompile=false` on the CLI. Also strip any
+ * inherited ts-node hooks so workers do not `require()` ESM formatters through ts-node.
+ */
+function envForWdioChild(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  delete env.WDIO_LOAD_TS_NODE;
+  const nodeOptions = env.NODE_OPTIONS;
+  if (typeof nodeOptions === 'string' && nodeOptions.length > 0) {
+    const cleaned = nodeOptions
+      .replace(/\s*--loader\s+ts-node\/esm\/transpile-only\s*/g, ' ')
+      .replace(/\s*-r\s+ts-node\/register\s*/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (cleaned.length === 0) {
+      delete env.NODE_OPTIONS;
+    } else {
+      env.NODE_OPTIONS = cleaned;
+    }
+  }
+  return env;
+}
+
 function bundleWdioStepsSync(): void {
   const tsxMjs = path.join(serverRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
   const bundleScript = path.join(serverRoot, 'scripts', 'bundleWdioSteps.ts');
@@ -37,8 +62,9 @@ function bundleWdioStepsSync(): void {
 }
 
 /**
- * Run WDIO via `node …/wdio.js run wdio.conf.cjs` (not `npm run`), because on Windows
- * spawning `npm.cmd` without a shell often fails with `spawn EINVAL` on Node 20+.
+ * Run WDIO via `node …/wdio.js run wdio.conf.cjs --autoCompileOpts.autoCompile=false`
+ * (not `npm run`), because on Windows spawning `npm.cmd` without a shell often fails
+ * with `spawn EINVAL` on Node 20+.
  */
 function runWdioE2e(): Promise<void> {
   bundleWdioStepsSync();
@@ -52,11 +78,20 @@ function runWdioE2e(): Promise<void> {
     'wdio.js'
   );
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [wdioCli, 'run', 'wdio.conf.cjs'], {
-      cwd: serverRoot,
-      env: process.env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const child = spawn(
+      process.execPath,
+      [
+        wdioCli,
+        'run',
+        'wdio.conf.cjs',
+        '--autoCompileOpts.autoCompile=false',
+      ],
+      {
+        cwd: serverRoot,
+        env: envForWdioChild(),
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }
+    );
     const chunks: Buffer[] = [];
     const push = (d: Buffer) => {
       chunks.push(d);

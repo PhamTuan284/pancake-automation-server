@@ -5,8 +5,10 @@ const dotenv = require('dotenv');
 dotenv.config({ path: path.join(__dirname, '.env') });
 
 /**
- * Use `.cjs` (not `.ts`) so @wdio/cli does not inject ts-node into NODE_OPTIONS for the
- * whole process tree — that breaks Cucumber's require() of ESM formatters on Linux.
+ * Use `.cjs` (not `.ts`) so @wdio/cli does not re-exec with ts-node for the config file.
+ * You must still pass `--autoCompileOpts.autoCompile=false` on the CLI: ConfigParser runs
+ * loadAutoCompilers *before* reading this file, so the default autoCompile:true would
+ * otherwise set WDIO_LOAD_TS_NODE and break Cucumber formatters on Node 22.
  */
 const onRailway = Boolean(process.env.RAILWAY_ENVIRONMENT);
 const headless =
