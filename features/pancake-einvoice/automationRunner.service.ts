@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { execFileSync, spawn } from 'child_process';
 import path from 'path';
 import { runPancakeFlow } from './automation/runPancakeFlow';
 
@@ -26,14 +26,23 @@ export async function triggerAutomationRun(): Promise<void> {
 
 const serverRoot = path.join(__dirname, '..', '..');
 
+function bundleWdioStepsSync(): void {
+  const tsxMjs = path.join(serverRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+  const bundleScript = path.join(serverRoot, 'scripts', 'bundleWdioSteps.ts');
+  execFileSync(process.execPath, [tsxMjs, bundleScript], {
+    cwd: serverRoot,
+    stdio: 'inherit',
+    env: process.env,
+  });
+}
+
 /**
  * Run WDIO via `node …/wdio.js run wdio.conf.ts` (not `npm run`), because on Windows
  * spawning `npm.cmd` without a shell often fails with `spawn EINVAL` on Node 20+.
- *
- * Node 22+: pass `--experimental-require-module` so ts-node can load Cucumber/WDIO
- * ESM modules that use top-level await (Linux/Docker); harmless when unset on older Node.
  */
 function runWdioE2e(): Promise<void> {
+  bundleWdioStepsSync();
+
   const wdioCli = path.join(
     serverRoot,
     'node_modules',
@@ -42,20 +51,10 @@ function runWdioE2e(): Promise<void> {
     'bin',
     'wdio.js'
   );
-  const nodeMajor = Number(process.versions.node.split('.')[0]);
-  const requireModuleFlag = '--experimental-require-module';
-  const env = { ...process.env };
-  if (
-    nodeMajor >= 22 &&
-    !(env.NODE_OPTIONS ?? '').includes(requireModuleFlag)
-  ) {
-    env.NODE_OPTIONS = `${env.NODE_OPTIONS ?? ''} ${requireModuleFlag}`.trim();
-  }
-
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [wdioCli, 'run', 'wdio.conf.ts'], {
       cwd: serverRoot,
-      env,
+      env: process.env,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     const chunks: Buffer[] = [];

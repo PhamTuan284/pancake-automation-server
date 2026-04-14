@@ -52,6 +52,10 @@ function chromedriverCustomPath(): string {
 
 export const config: Options.Testrunner = {
   runner: 'local',
+  // Do not set WDIO_LOAD_TS_NODE (avoids ts-node in workers + broken require() of Cucumber ESM on Linux).
+  autoCompileOpts: {
+    autoCompile: false,
+  },
   specs: ['./wdio/features/**/*.feature'],
   exclude: [],
   maxInstances: onRailway ? 1 : 10,
@@ -80,7 +84,7 @@ export const config: Options.Testrunner = {
     ],
   ],
   cucumberOpts: {
-    require: ['./wdio/features/step-definitions/**/*.ts'],
+    require: ['./wdio/features/step-definitions/pancake-login.bundled.cjs'],
     backtrace: false,
     failFast: false,
     snippets: true,
