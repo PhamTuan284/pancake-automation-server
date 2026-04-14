@@ -1,5 +1,8 @@
 import type { Request, Response } from 'express';
-import { triggerAutomationRun } from './automationRunner.service';
+import {
+  triggerAutomationRun,
+  triggerE2eTestRun,
+} from './automationRunner.service';
 import * as einvoiceService from './einvoice.service';
 
 export async function getInvoiceData(
@@ -124,11 +127,38 @@ export async function postRunEinvoiceAutomation(
     await triggerAutomationRun();
     res.json({ status: 'completed' });
   } catch (err) {
-    if (err instanceof Error && err.message === 'Automation already running') {
+    if (
+      err instanceof Error &&
+      (err.message === 'Automation already running' ||
+        err.message === 'E2E test is already running')
+    ) {
       res.status(409).json({ error: err.message });
       return;
     }
     console.error('Automation failed:', err);
     res.status(500).json({ error: 'Automation failed, see server logs.' });
+  }
+}
+
+export async function postRunE2eTests(
+  _req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    await triggerE2eTestRun();
+    res.json({ status: 'completed' });
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      (err.message === 'E2E test already running' ||
+        err.message === 'Automation already running')
+    ) {
+      res.status(409).json({ error: err.message });
+      return;
+    }
+    console.error('E2E tests failed:', err);
+    const detail =
+      err instanceof Error ? err.message : 'E2E failed, see server logs.';
+    res.status(500).json({ error: detail });
   }
 }

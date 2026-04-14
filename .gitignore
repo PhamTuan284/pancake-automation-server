@@ -1,4 +1,5 @@
 node_modules/
+wdio/node_modules/
 .env
 *.log
 filledInvoices.json
