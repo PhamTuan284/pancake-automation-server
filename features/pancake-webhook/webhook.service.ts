@@ -66,6 +66,7 @@ export async function listWebhookEventsForResponse(
   const events = raw.map((ev, i) => ({
     id: ev.id || `${ev.at}-${i}`,
     receivedAt: ev.at,
+    kind: ev.kind || 'unknown',
     contentType: ev.contentType || String(ev.headers['content-type'] || ''),
     payload: ev.payload,
   }));
