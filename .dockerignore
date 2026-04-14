@@ -1,0 +1,8 @@
+node_modules
+wdio/node_modules
+.git
+.gitignore
+*.md
+.railway
+.env
+.env.*
