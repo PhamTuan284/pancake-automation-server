@@ -31,6 +31,7 @@ const serverRoot = path.join(__dirname, '..', '..');
  * default `autoCompile: true` still enables ts-node and sets `WDIO_LOAD_TS_NODE=1`
  * unless we pass `--autoCompileOpts.autoCompile=false` on the CLI. Also strip any
  * inherited ts-node hooks so workers do not `require()` ESM formatters through ts-node.
+ * Node 22+ `require(esm)` is disabled for WDIO via `scripts/runWdioE2e.cjs` (`--no-require-module`).
  */
 function envForWdioChild(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
@@ -62,36 +63,19 @@ function bundleWdioStepsSync(): void {
 }
 
 /**
- * Run WDIO via `node …/wdio.js run wdio.conf.cjs --autoCompileOpts.autoCompile=false`
- * (not `npm run`), because on Windows spawning `npm.cmd` without a shell often fails
- * with `spawn EINVAL` on Node 20+.
+ * Run WDIO via `node scripts/runWdioE2e.cjs` (not `npm run`), because on Windows spawning
+ * `npm.cmd` without a shell often fails with `spawn EINVAL` on Node 20+.
  */
 function runWdioE2e(): Promise<void> {
   bundleWdioStepsSync();
 
-  const wdioCli = path.join(
-    serverRoot,
-    'node_modules',
-    '@wdio',
-    'cli',
-    'bin',
-    'wdio.js'
-  );
+  const launcher = path.join(serverRoot, 'scripts', 'runWdioE2e.cjs');
   return new Promise((resolve, reject) => {
-    const child = spawn(
-      process.execPath,
-      [
-        wdioCli,
-        'run',
-        'wdio.conf.cjs',
-        '--autoCompileOpts.autoCompile=false',
-      ],
-      {
-        cwd: serverRoot,
-        env: envForWdioChild(),
-        stdio: ['ignore', 'pipe', 'pipe'],
-      }
-    );
+    const child = spawn(process.execPath, [launcher], {
+      cwd: serverRoot,
+      env: envForWdioChild(),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
     const chunks: Buffer[] = [];
     const push = (d: Buffer) => {
       chunks.push(d);
@@ -108,7 +92,7 @@ function runWdioE2e(): Promise<void> {
       const tail = Buffer.concat(chunks).toString('utf8').slice(-6000);
       reject(
         new Error(
-          `wdio run wdio.conf.cjs exited with code ${code ?? 'unknown'}\n${tail}`
+          `E2E runner (scripts/runWdioE2e.cjs) exited with code ${code ?? 'unknown'}\n${tail}`
         )
       );
     });
