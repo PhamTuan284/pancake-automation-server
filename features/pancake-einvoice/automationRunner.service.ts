@@ -29,6 +29,9 @@ const serverRoot = path.join(__dirname, '..', '..');
 /**
  * Run WDIO via `node …/wdio.js run wdio.conf.ts` (not `npm run`), because on Windows
  * spawning `npm.cmd` without a shell often fails with `spawn EINVAL` on Node 20+.
+ *
+ * Node 22+: pass `--experimental-require-module` so ts-node can load Cucumber/WDIO
+ * ESM modules that use top-level await (Linux/Docker); harmless when unset on older Node.
  */
 function runWdioE2e(): Promise<void> {
   const wdioCli = path.join(
@@ -39,10 +42,20 @@ function runWdioE2e(): Promise<void> {
     'bin',
     'wdio.js'
   );
+  const nodeMajor = Number(process.versions.node.split('.')[0]);
+  const requireModuleFlag = '--experimental-require-module';
+  const env = { ...process.env };
+  if (
+    nodeMajor >= 22 &&
+    !(env.NODE_OPTIONS ?? '').includes(requireModuleFlag)
+  ) {
+    env.NODE_OPTIONS = `${env.NODE_OPTIONS ?? ''} ${requireModuleFlag}`.trim();
+  }
+
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [wdioCli, 'run', 'wdio.conf.ts'], {
       cwd: serverRoot,
-      env: process.env,
+      env,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     const chunks: Buffer[] = [];

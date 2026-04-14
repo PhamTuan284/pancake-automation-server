@@ -46,7 +46,6 @@ function chromedriverCustomPath(): string {
   if (process.env.CHROMEDRIVER_PATH) {
     return process.env.CHROMEDRIVER_PATH;
   }
-  // Local dev: npm `chromedriver`; Docker sets CHROMEDRIVER_PATH.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   return require('chromedriver').path as string;
 }
