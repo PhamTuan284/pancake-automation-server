@@ -6,6 +6,29 @@ import {
 } from '../pancake-einvoice/automationRunner.service';
 import * as webhookService from './webhook.service';
 
+function debugWebhookIngress(req: Request, label: string): void {
+  const secretHeaderName = webhookService
+    .getWebhookPanelConfig()
+    .incomingSecretHeader;
+  const candidateHeaders = [
+    'content-type',
+    'user-agent',
+    'x-forwarded-for',
+    'x-forwarded-proto',
+    'x-real-ip',
+    secretHeaderName,
+  ];
+  const headerDump = Object.fromEntries(
+    candidateHeaders
+      .map((name) => [name, req.header(name)])
+      .filter(([, value]) => value != null)
+  );
+  console.log(
+    `[webhook][debug] ${label} hit: ${req.method} ${req.originalUrl}`,
+    headerDump
+  );
+}
+
 export function getPancakeWebhookConfig(_req: Request, res: Response): void {
   res.json(webhookService.getWebhookPanelConfig());
 }
@@ -47,7 +70,16 @@ export async function postPancakeWebhookIngress(
   req: Request,
   res: Response
 ): Promise<void> {
+  debugWebhookIngress(req, 'primary');
   if (!webhookService.verifyWebhookSecret(req)) {
+    const secretHeaderName = webhookService
+      .getWebhookPanelConfig()
+      .incomingSecretHeader;
+    const provided = req.header(secretHeaderName);
+    console.warn(
+      `[webhook] Rejected: invalid webhook secret header (${secretHeaderName})`,
+      { provided }
+    );
     res
       .status(401)
       .json({ success: false, error: 'Invalid webhook secret' });
@@ -56,12 +88,16 @@ export async function postPancakeWebhookIngress(
   const event = await webhookService.recordWebhookEventWithPersistence(req);
   console.log(`[webhook] Received type=${event.kind} at=${event.at}`);
 
+  res.json({ success: true });
+
   if (webhookService.shouldAutoRunFromWebhook()) {
-    if (isAutomationRunning()) {
-      console.log(
-        '[webhook] Automation already running, skipping auto-run trigger'
-      );
-    } else {
+    void (async () => {
+      if (isAutomationRunning()) {
+        console.log(
+          '[webhook] Automation already running, skipping auto-run trigger'
+        );
+        return;
+      }
       try {
         await triggerE2eTestRun([
           '--spec',
@@ -71,17 +107,24 @@ export async function postPancakeWebhookIngress(
       } catch (err) {
         console.error('[webhook] Auto-run failed:', err);
       }
-    }
+    })();
   }
-
-  res.json({ success: true });
 }
 
 export async function postLegacyWebhookReceiver(
   req: Request,
   res: Response
 ): Promise<void> {
+  debugWebhookIngress(req, 'legacy');
   if (!webhookService.verifyWebhookSecret(req)) {
+    const secretHeaderName = webhookService
+      .getWebhookPanelConfig()
+      .incomingSecretHeader;
+    const provided = req.header(secretHeaderName);
+    console.warn(
+      `[webhook] Rejected legacy receiver: invalid webhook secret header (${secretHeaderName})`,
+      { provided }
+    );
     res
       .status(401)
       .json({ success: false, error: 'Invalid webhook secret' });
@@ -90,6 +133,36 @@ export async function postLegacyWebhookReceiver(
   const event = await webhookService.recordWebhookEventWithPersistence(req);
   console.log(`[webhook] Received type=${event.kind} at=${event.at}`);
   res.json({ success: true });
+}
+
+export async function postPancakeWebhookPing(
+  req: Request,
+  res: Response
+): Promise<void> {
+  const body = (req.body || {}) as {
+    payload?: unknown;
+    headers?: Record<string, unknown>;
+  };
+  const payload =
+    body.payload ??
+    ({
+      webhook_type: 'orders',
+      id: `ping-${Date.now()}`,
+      customer_id: 'ping-customer',
+      bill_full_name: 'Webhook Ping',
+      order_sources: ['manual_ping'],
+      note: 'Synthetic event to verify webhook ingestion',
+    } as const);
+  const hdrs = body.headers && typeof body.headers === 'object' ? body.headers : {};
+  const headers = Object.fromEntries(
+    Object.entries(hdrs).map(([k, v]) => [k, String(v)])
+  );
+  const event = await webhookService.recordSyntheticWebhookEventWithPersistence(
+    payload,
+    headers
+  );
+  console.log(`[webhook] Synthetic ping type=${event.kind} at=${event.at}`);
+  res.json({ ok: true, event });
 }
 
 export async function getPancakeWebhookEvents(

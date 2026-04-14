@@ -45,6 +45,10 @@ webhookRouter.get('/pancake-webhook/events', (req, res) => {
   void webhookController.getPancakeWebhookEvents(req, res);
 });
 
+webhookRouter.post('/pancake-webhook/ping', (req, res) => {
+  void webhookController.postPancakeWebhookPing(req, res);
+});
+
 webhookRouter.delete('/pancake-webhook/events', (req, res) => {
   void webhookController.deletePancakeWebhookEvents(req, res);
 });

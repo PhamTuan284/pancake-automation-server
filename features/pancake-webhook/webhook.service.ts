@@ -5,6 +5,7 @@ import {
   getLegacyWebhookPanelConfig,
   listWebhookEvents,
   recordWebhookEventWithPersistence,
+  recordSyntheticWebhookEventWithPersistence,
   registerPancakeWebhook,
   resolveWebhookReceiverPath,
   shouldAutoRunFromWebhook,
@@ -14,6 +15,7 @@ import {
 
 export {
   recordWebhookEventWithPersistence,
+  recordSyntheticWebhookEventWithPersistence,
   shouldAutoRunFromWebhook,
   verifyWebhookSecret,
 };

@@ -319,7 +319,32 @@ export async function recordWebhookEventWithPersistence(
 ): Promise<ReceivedWebhookEvent> {
   const event = recordWebhookEvent(req);
   event.contentType = String(event.headers['content-type'] || '');
-  await persistWebhookEventToMongo(event);
+  void persistWebhookEventToMongo(event);
+  return event;
+}
+
+export async function recordSyntheticWebhookEventWithPersistence(
+  payload: unknown,
+  headers: Record<string, string> = {}
+): Promise<ReceivedWebhookEvent> {
+  const lowerHeaders = Object.fromEntries(
+    Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v])
+  ) as Record<string, string>;
+  const event: ReceivedWebhookEvent = {
+    at: new Date().toISOString(),
+    kind: detectWebhookKind(payload),
+    payload,
+    headers: {
+      ...lowerHeaders,
+      'content-type': lowerHeaders['content-type'] || 'application/json',
+    },
+  };
+  event.contentType = String(event.headers['content-type'] || '');
+  receivedWebhookEvents.unshift(event);
+  if (receivedWebhookEvents.length > MAX_WEBHOOK_EVENTS_IN_MEMORY) {
+    receivedWebhookEvents.length = MAX_WEBHOOK_EVENTS_IN_MEMORY;
+  }
+  void persistWebhookEventToMongo(event);
   return event;
 }
 
