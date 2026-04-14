@@ -1,0 +1,9 @@
+# Use this file when this directory is the whole Git repository (backend-only).
+# Railway: Root Directory empty; Dockerfile is at repo root of the API repo.
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "npm start"
+healthcheckPath = "/health"
