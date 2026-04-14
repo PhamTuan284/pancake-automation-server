@@ -17,14 +17,29 @@ webhookRouter.get('/pancake-webhook/products/variations', (req, res) => {
   void webhookController.getPancakeProductsVariations(req, res);
 });
 
-webhookRouter.post('/pancake/webhook', (req, res) => {
+function handleWebhookIngress(
+  req: express.Request,
+  res: express.Response
+): void {
   void webhookController.postPancakeWebhookIngress(req, res);
-});
+}
+
+webhookRouter.post('/pancake/webhook', handleWebhookIngress);
+webhookRouter.post('/api/pancake/webhook', handleWebhookIngress);
 
 const legacyReceiverPath = getLegacyWebhookReceiverPath();
+const legacyReceiverPathWithApiPrefix = legacyReceiverPath.startsWith('/api/')
+  ? legacyReceiverPath
+  : `/api${legacyReceiverPath}`;
+
 webhookRouter.post(legacyReceiverPath, (req, res) => {
   void webhookController.postLegacyWebhookReceiver(req, res);
 });
+if (legacyReceiverPathWithApiPrefix !== legacyReceiverPath) {
+  webhookRouter.post(legacyReceiverPathWithApiPrefix, (req, res) => {
+    void webhookController.postLegacyWebhookReceiver(req, res);
+  });
+}
 
 webhookRouter.get('/pancake-webhook/events', (req, res) => {
   void webhookController.getPancakeWebhookEvents(req, res);

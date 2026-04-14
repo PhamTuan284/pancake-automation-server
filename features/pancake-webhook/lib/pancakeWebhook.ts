@@ -231,6 +231,25 @@ function detectWebhookKind(payload: unknown): string {
     return 'unknown';
   }
   const obj = payload as Record<string, unknown>;
+  const explicitType = trimString(
+    obj.webhook_type ?? obj.type ?? (obj.data as Record<string, unknown> | undefined)?.type
+  ).toLowerCase();
+  if (
+    explicitType === 'orders' ||
+    explicitType === 'order' ||
+    explicitType === 'customers' ||
+    explicitType === 'customer' ||
+    explicitType === 'products' ||
+    explicitType === 'product' ||
+    explicitType === 'variations_warehouses' ||
+    explicitType === 'variation_warehouses'
+  ) {
+    if (explicitType === 'order') return 'orders';
+    if (explicitType === 'customer') return 'customers';
+    if (explicitType === 'product') return 'products';
+    if (explicitType === 'variation_warehouses') return 'variations_warehouses';
+    return explicitType;
+  }
   const record = (obj.data as Record<string, unknown> | undefined)?.record as
     | Record<string, unknown>
     | undefined;
