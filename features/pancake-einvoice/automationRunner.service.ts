@@ -31,7 +31,8 @@ const serverRoot = path.join(__dirname, '..', '..');
  * default `autoCompile: true` still enables ts-node and sets `WDIO_LOAD_TS_NODE=1`
  * unless we pass `--autoCompileOpts.autoCompile=false` on the CLI. Also strip any
  * inherited ts-node hooks so workers do not `require()` ESM formatters through ts-node.
- * Node 22+ `require(esm)` is disabled for WDIO via `scripts/runWdioE2e.cjs` (`--no-require-module`).
+ * Node 22+ `require(esm)` is disabled for WDIO via `scripts/runWdioE2e.cjs` (sets NODE_OPTIONS so
+ * forked WDIO workers inherit the flag).
  */
 function envForWdioChild(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };

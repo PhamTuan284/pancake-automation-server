@@ -4,8 +4,10 @@
  * @cucumber/cucumber@9 only falls back to dynamic `import()` on ERR_REQUIRE_ESM.
  * Disabling `require(esm)` restores ERR_REQUIRE_ESM so Cucumber's fallback runs.
  *
- * The CLI flag name changed across Node minors (`--no-require-module` vs
- * `--no-experimental-require-module`), so we probe instead of assuming.
+ * The flag must live in NODE_OPTIONS, not only on the parent `node` argv: @wdio/local-runner
+ * forks workers with `child.fork()`, which does not inherit ad-hoc CLI flags from the parent.
+ *
+ * Flag names differ across Node minors; we probe with NODE_OPTIONS (same mechanism workers use).
  * @see https://nodejs.org/api/modules.html#loading-ecmascript-modules-using-require
  */
 const { spawnSync } = require('node:child_process');
@@ -16,39 +18,53 @@ const wdioCli = path.join(root, 'node_modules', '@wdio', 'cli', 'bin', 'wdio.js'
 
 const major = Number(process.version.slice(1).split('.')[0]);
 
-/** @returns {string[]} */
-function nodeFlagsToDisableRequireEsm() {
+/**
+ * @param {NodeJS.ProcessEnv} env
+ * @param {string} flag
+ * @returns {NodeJS.ProcessEnv}
+ */
+function mergeNodeOptions(env, flag) {
+  const next = { ...env };
+  const cur = (next.NODE_OPTIONS ?? '').trim();
+  if (cur.includes(flag)) {
+    return next;
+  }
+  next.NODE_OPTIONS = cur ? `${flag} ${cur}` : flag;
+  return next;
+}
+
+/** @returns {string} */
+function pickDisableRequireModuleFlag() {
   if (!Number.isFinite(major) || major < 22) {
-    return [];
+    return '';
   }
   const candidates = ['--no-require-module', '--no-experimental-require-module'];
   for (const flag of candidates) {
-    const probe = spawnSync(process.execPath, [flag, '-e', 'process.exit(0)'], {
-      encoding: 'utf8',
+    const probeEnv = mergeNodeOptions(process.env, flag);
+    const probe = spawnSync(process.execPath, ['-e', 'process.exit(0)'], {
       stdio: 'ignore',
+      env: probeEnv,
     });
     if (probe.status === 0) {
-      return [flag];
+      return flag;
     }
   }
-  return [];
+  return '';
 }
 
-const nodeFlags = nodeFlagsToDisableRequireEsm();
+const disableFlag = pickDisableRequireModuleFlag();
+const wdioEnv =
+  disableFlag.length > 0
+    ? mergeNodeOptions(process.env, disableFlag)
+    : process.env;
 
 const result = spawnSync(
   process.execPath,
-  [
-    ...nodeFlags,
-    wdioCli,
-    'run',
-    'wdio.conf.cjs',
-    '--autoCompileOpts.autoCompile=false',
-  ],
+  [wdioCli, 'run', 'wdio.conf.cjs', '--autoCompileOpts.autoCompile=false'],
   {
     cwd: root,
     stdio: 'inherit',
-    env: process.env,
+    env: wdioEnv,
   }
 );
 
