@@ -1,7 +1,8 @@
 import type { Request, Response } from 'express';
 import {
   isAutomationRunning,
-  triggerAutomationRun,
+  triggerE2eTestRun,
+  WDIO_SPEC_EINVOICE_AUTOMATION,
 } from '../pancake-einvoice/automationRunner.service';
 import * as webhookService from './webhook.service';
 
@@ -62,7 +63,10 @@ export async function postPancakeWebhookIngress(
       );
     } else {
       try {
-        await triggerAutomationRun();
+        await triggerE2eTestRun([
+          '--spec',
+          WDIO_SPEC_EINVOICE_AUTOMATION,
+        ]);
         console.log('[webhook] Auto-run completed');
       } catch (err) {
         console.error('[webhook] Auto-run failed:', err);

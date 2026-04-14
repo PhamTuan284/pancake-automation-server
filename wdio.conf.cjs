@@ -44,7 +44,10 @@ exports.config = {
     ],
   ],
   cucumberOpts: {
-    require: ['./wdio/features/step-definitions/pancake-login.bundled.cjs'],
+    require: [
+      './wdio/features/step-definitions/pancake-login.bundled.cjs',
+      './wdio/features/step-definitions/pancake-einvoice-automation.bundled.cjs',
+    ],
     backtrace: false,
     failFast: false,
     snippets: true,

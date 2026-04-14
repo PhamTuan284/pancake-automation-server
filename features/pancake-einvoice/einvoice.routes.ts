@@ -39,10 +39,6 @@ einvoiceRouter.post('/upload-invoice-excel', (req, res) => {
   });
 });
 
-einvoiceRouter.post('/run-einvoice-automation', (req, res) => {
-  void einvoiceController.postRunEinvoiceAutomation(req, res);
-});
-
 einvoiceRouter.post('/run-e2e-tests', (req, res) => {
   void einvoiceController.postRunE2eTests(req, res);
 });

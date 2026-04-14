@@ -1,42 +1,6 @@
 import type { Request, Response } from 'express';
-import {
-  triggerAutomationRun,
-  triggerE2eTestRun,
-} from './automationRunner.service';
+import { triggerE2eTestRun } from './automationRunner.service';
 import * as einvoiceService from './einvoice.service';
-
-const MUTEX_CONFLICT_MESSAGES = new Set([
-  'Automation already running',
-  'E2E test is already running',
-  'E2E test already running',
-]);
-
-function isMutexConflict(err: unknown): boolean {
-  return err instanceof Error && MUTEX_CONFLICT_MESSAGES.has(err.message);
-}
-
-async function respondLongRunningTask(
-  res: Response,
-  task: () => Promise<void>,
-  logLabel: string,
-  fallback500: string
-): Promise<void> {
-  try {
-    await task();
-    res.json({ status: 'completed' });
-  } catch (err) {
-    if (isMutexConflict(err)) {
-      res.status(409).json({
-        error: err instanceof Error ? err.message : 'Conflict',
-      });
-      return;
-    }
-    console.error(`${logLabel}:`, err);
-    const detail =
-      err instanceof Error ? err.message : fallback500;
-    res.status(500).json({ error: detail });
-  }
-}
 
 export async function getInvoiceData(
   _req: Request,
@@ -152,26 +116,41 @@ export async function postUploadInvoiceExcel(
   }
 }
 
-export async function postRunEinvoiceAutomation(
-  _req: Request,
-  res: Response
-): Promise<void> {
-  await respondLongRunningTask(
-    res,
-    () => triggerAutomationRun(),
-    'Automation failed',
-    'Automation failed, see server logs.'
-  );
-}
+type RunE2eBody = {
+  spec?: string;
+  wdioArgs?: string[];
+};
 
-export async function postRunE2eTests(
-  _req: Request,
-  res: Response
-): Promise<void> {
-  await respondLongRunningTask(
-    res,
-    () => triggerE2eTestRun(),
-    'E2E tests failed',
-    'E2E failed, see server logs.'
-  );
+/**
+ * Run WDIO/Cucumber. Optional body:
+ * - `{ "spec": "./wdio/features/pancake-einvoice-automation.feature" }` — invoice automation only
+ * - `{ "wdioArgs": ["--spec", "./wdio/features/pancake-login.feature"] }` — raw extra args after config
+ * Omit body to run all features from `wdio.conf.cjs`.
+ */
+export async function postRunE2eTests(req: Request, res: Response): Promise<void> {
+  try {
+    const body = (req.body || {}) as RunE2eBody;
+    const extra: string[] = [];
+    if (typeof body.spec === 'string' && body.spec.trim()) {
+      extra.push('--spec', body.spec.trim());
+    }
+    if (Array.isArray(body.wdioArgs)) {
+      for (const a of body.wdioArgs) {
+        if (typeof a === 'string' && a.length > 0) {
+          extra.push(a);
+        }
+      }
+    }
+    await triggerE2eTestRun(extra);
+    res.json({ status: 'completed' });
+  } catch (err) {
+    if (err instanceof Error && err.message === 'E2E test already running') {
+      res.status(409).json({ error: err.message });
+      return;
+    }
+    console.error('E2E tests failed:', err);
+    const detail =
+      err instanceof Error ? err.message : 'E2E failed, see server logs.';
+    res.status(500).json({ error: detail });
+  }
 }

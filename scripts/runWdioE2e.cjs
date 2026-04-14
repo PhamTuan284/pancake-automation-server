@@ -58,9 +58,16 @@ const wdioEnv =
     ? mergeNodeOptions(process.env, disableFlag)
     : process.env;
 
+const extraArgs = process.argv.slice(2);
 const result = spawnSync(
   process.execPath,
-  [wdioCli, 'run', 'wdio.conf.cjs', '--autoCompileOpts.autoCompile=false'],
+  [
+    wdioCli,
+    'run',
+    'wdio.conf.cjs',
+    '--autoCompileOpts.autoCompile=false',
+    ...extraArgs,
+  ],
   {
     cwd: root,
     stdio: 'inherit',

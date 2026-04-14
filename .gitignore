@@ -4,3 +4,4 @@ wdio/node_modules/
 *.log
 filledInvoices.json
 wdio/features/step-definitions/pancake-login.bundled.cjs
+wdio/features/step-definitions/pancake-einvoice-automation.bundled.cjs

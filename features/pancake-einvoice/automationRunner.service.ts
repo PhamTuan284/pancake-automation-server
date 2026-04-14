@@ -1,27 +1,15 @@
 import { execFileSync, spawn } from 'child_process';
 import path from 'path';
-import { runEinvoiceAutomation } from './automation/runEinvoiceAutomation';
 
-let running = false;
+/** WDIO spec for the full e-invoice table flow (API + webhook + `npm run automation`). */
+export const WDIO_SPEC_EINVOICE_AUTOMATION =
+  './wdio/features/pancake-einvoice-automation.feature';
+
 let e2eRunning = false;
 
+/** True while a WDIO child process is running (any spec). */
 export function isAutomationRunning(): boolean {
-  return running;
-}
-
-export async function triggerAutomationRun(): Promise<void> {
-  if (running) {
-    throw new Error('Automation already running');
-  }
-  if (e2eRunning) {
-    throw new Error('E2E test is already running');
-  }
-  running = true;
-  try {
-    await runEinvoiceAutomation();
-  } finally {
-    running = false;
-  }
+  return e2eRunning;
 }
 
 const serverRoot = path.join(__dirname, '..', '..');
@@ -66,13 +54,14 @@ function bundleWdioStepsSync(): void {
 /**
  * Run WDIO via `node scripts/runWdioE2e.cjs` (not `npm run`), because on Windows spawning
  * `npm.cmd` without a shell often fails with `spawn EINVAL` on Node 20+.
+ * @param extraWdioArgs e.g. `['--spec', WDIO_SPEC_EINVOICE_AUTOMATION]` to run one feature.
  */
-function runWdioE2e(): Promise<void> {
+function runWdioE2e(extraWdioArgs: string[] = []): Promise<void> {
   bundleWdioStepsSync();
 
   const launcher = path.join(serverRoot, 'scripts', 'runWdioE2e.cjs');
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [launcher], {
+    const child = spawn(process.execPath, [launcher, ...extraWdioArgs], {
       cwd: serverRoot,
       env: envForWdioChild(),
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -100,16 +89,18 @@ function runWdioE2e(): Promise<void> {
   });
 }
 
-export async function triggerE2eTestRun(): Promise<void> {
+/**
+ * Run Cucumber/WDIO. Pass `['--spec', WDIO_SPEC_EINVOICE_AUTOMATION]` for invoice automation only.
+ */
+export async function triggerE2eTestRun(
+  extraWdioArgs: string[] = []
+): Promise<void> {
   if (e2eRunning) {
     throw new Error('E2E test already running');
   }
-  if (running) {
-    throw new Error('Automation already running');
-  }
   e2eRunning = true;
   try {
-    await runWdioE2e();
+    await runWdioE2e(extraWdioArgs);
   } finally {
     e2eRunning = false;
   }
