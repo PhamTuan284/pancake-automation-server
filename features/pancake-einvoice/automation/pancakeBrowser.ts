@@ -1,9 +1,15 @@
 import http from 'http';
 import net from 'net';
 import { spawn, type ChildProcess } from 'child_process';
-import chromedriver from 'chromedriver';
+import { remote } from 'webdriverio';
+import type { WdioBrowser } from './types';
 
-/** Avoid binding to a stale ChromeDriver from a previous crashed run. */
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const chromeEnv = require('./pancake-chrome-env.cjs') as {
+  chromedriverExecutablePath: () => string;
+  remoteCapabilities: () => Record<string, unknown>;
+};
+
 function getFreeTcpPort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const s = net.createServer();
@@ -51,19 +57,53 @@ function waitForChromeDriverStatus(
   });
 }
 
-/**
- * Start ChromeDriver on a free port and return { port, child }.
- * Caller must kill child on exit.
- */
-export async function startChromeDriver(): Promise<{
+async function startChromeDriverOnFreePort(): Promise<{
   port: number;
   child: ChildProcess;
 }> {
   const port = await getFreeTcpPort();
-  const child = spawn(chromedriver.path, [`--port=${port}`], {
+  const chromedriverPath = chromeEnv.chromedriverExecutablePath();
+  const child = spawn(chromedriverPath, [`--port=${port}`], {
     stdio: 'ignore',
     windowsHide: true,
   });
   await waitForChromeDriverStatus(port);
   return { port, child };
+}
+
+export type PancakeBrowserSession = {
+  browser: WdioBrowser;
+  driverChild: ChildProcess;
+  port: number;
+};
+
+/**
+ * Start ChromeDriver on a free port and attach WebdriverIO (same capabilities as WDIO E2E).
+ */
+export async function connectPancakeBrowser(): Promise<PancakeBrowserSession> {
+  const { port, child } = await startChromeDriverOnFreePort();
+  const browser = (await remote({
+    hostname: 'localhost',
+    port,
+    path: '/',
+    capabilities: chromeEnv.remoteCapabilities(),
+    connectionRetryCount: 3,
+    connectionRetryTimeout: 120_000,
+  })) as WdioBrowser;
+  return { browser, driverChild: child, port };
+}
+
+export async function disposePancakeBrowserSession(
+  session: PancakeBrowserSession
+): Promise<void> {
+  try {
+    await session.browser.deleteSession();
+  } catch {
+    /* ignore */
+  }
+  try {
+    session.driverChild.kill();
+  } catch {
+    /* ignore */
+  }
 }

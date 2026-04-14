@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from 'child_process';
 import path from 'path';
-import { runPancakeFlow } from './automation/runPancakeFlow';
+import { runEinvoiceAutomation } from './automation/runEinvoiceAutomation';
 
 let running = false;
 let e2eRunning = false;
@@ -18,7 +18,7 @@ export async function triggerAutomationRun(): Promise<void> {
   }
   running = true;
   try {
-    await runPancakeFlow();
+    await runEinvoiceAutomation();
   } finally {
     running = false;
   }

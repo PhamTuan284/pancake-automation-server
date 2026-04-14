@@ -5,6 +5,39 @@ import {
 } from './automationRunner.service';
 import * as einvoiceService from './einvoice.service';
 
+const MUTEX_CONFLICT_MESSAGES = new Set([
+  'Automation already running',
+  'E2E test is already running',
+  'E2E test already running',
+]);
+
+function isMutexConflict(err: unknown): boolean {
+  return err instanceof Error && MUTEX_CONFLICT_MESSAGES.has(err.message);
+}
+
+async function respondLongRunningTask(
+  res: Response,
+  task: () => Promise<void>,
+  logLabel: string,
+  fallback500: string
+): Promise<void> {
+  try {
+    await task();
+    res.json({ status: 'completed' });
+  } catch (err) {
+    if (isMutexConflict(err)) {
+      res.status(409).json({
+        error: err instanceof Error ? err.message : 'Conflict',
+      });
+      return;
+    }
+    console.error(`${logLabel}:`, err);
+    const detail =
+      err instanceof Error ? err.message : fallback500;
+    res.status(500).json({ error: detail });
+  }
+}
+
 export async function getInvoiceData(
   _req: Request,
   res: Response
@@ -123,42 +156,22 @@ export async function postRunEinvoiceAutomation(
   _req: Request,
   res: Response
 ): Promise<void> {
-  try {
-    await triggerAutomationRun();
-    res.json({ status: 'completed' });
-  } catch (err) {
-    if (
-      err instanceof Error &&
-      (err.message === 'Automation already running' ||
-        err.message === 'E2E test is already running')
-    ) {
-      res.status(409).json({ error: err.message });
-      return;
-    }
-    console.error('Automation failed:', err);
-    res.status(500).json({ error: 'Automation failed, see server logs.' });
-  }
+  await respondLongRunningTask(
+    res,
+    () => triggerAutomationRun(),
+    'Automation failed',
+    'Automation failed, see server logs.'
+  );
 }
 
 export async function postRunE2eTests(
   _req: Request,
   res: Response
 ): Promise<void> {
-  try {
-    await triggerE2eTestRun();
-    res.json({ status: 'completed' });
-  } catch (err) {
-    if (
-      err instanceof Error &&
-      (err.message === 'E2E test already running' ||
-        err.message === 'Automation already running')
-    ) {
-      res.status(409).json({ error: err.message });
-      return;
-    }
-    console.error('E2E tests failed:', err);
-    const detail =
-      err instanceof Error ? err.message : 'E2E failed, see server logs.';
-    res.status(500).json({ error: detail });
-  }
+  await respondLongRunningTask(
+    res,
+    () => triggerE2eTestRun(),
+    'E2E tests failed',
+    'E2E failed, see server logs.'
+  );
 }

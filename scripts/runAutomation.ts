@@ -1,6 +1,6 @@
-import { runPancakeFlow } from '../features/pancake-einvoice/automation/runPancakeFlow';
+import { runEinvoiceAutomation } from '../features/pancake-einvoice/automation/runEinvoiceAutomation';
 
-runPancakeFlow().catch((err) => {
+runEinvoiceAutomation().catch((err) => {
   console.error(err);
   process.exit(1);
 });

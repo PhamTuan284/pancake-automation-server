@@ -4,48 +4,16 @@ const dotenv = require('dotenv');
 
 dotenv.config({ path: path.join(__dirname, '.env') });
 
+const chromeEnv = require('./features/pancake-einvoice/automation/pancake-chrome-env.cjs');
+
 /**
  * Use `.cjs` (not `.ts`) so @wdio/cli does not re-exec with ts-node for the config file.
  * You must still pass `--autoCompileOpts.autoCompile=false` on the CLI: ConfigParser runs
  * loadAutoCompilers *before* reading this file, so the default autoCompile:true would
  * otherwise set WDIO_LOAD_TS_NODE and break Cucumber formatters on Node 22.
+ *
+ * Chrome options are shared with programmatic automation via `pancake-chrome-env.cjs`.
  */
-const onRailway = Boolean(process.env.RAILWAY_ENVIRONMENT);
-const headless =
-  onRailway ||
-  process.env.E2E_HEADLESS === '1' ||
-  process.env.CI === 'true';
-
-const chromeBinary = process.env.CHROME_BIN || process.env.CHROMIUM_BIN;
-
-const chromeArgsHeadless = [
-  '--headless=new',
-  '--no-sandbox',
-  '--disable-setuid-sandbox',
-  '--disable-dev-shm-usage',
-  '--disable-gpu',
-  '--window-size=1920,1080',
-];
-
-const chromeArgsHeaded = [
-  '--disable-gpu',
-  '--no-sandbox',
-  '--disable-dev-shm-usage',
-  '--disable-extensions',
-  '--no-first-run',
-  '--start-maximized',
-  '--incognito',
-];
-
-const chromeArgs = headless ? [...chromeArgsHeadless] : [...chromeArgsHeaded];
-
-function chromedriverCustomPath() {
-  if (process.env.CHROMEDRIVER_PATH) {
-    return process.env.CHROMEDRIVER_PATH;
-  }
-  return require('chromedriver').path;
-}
-
 exports.config = {
   runner: 'local',
   autoCompileOpts: {
@@ -53,17 +21,14 @@ exports.config = {
   },
   specs: ['./wdio/features/**/*.feature'],
   exclude: [],
-  maxInstances: onRailway ? 1 : 10,
+  maxInstances: chromeEnv.onRailway() ? 1 : 10,
   capabilities: [
     {
       browserName: 'chrome',
-      'goog:chromeOptions': {
-        ...(chromeBinary ? { binary: chromeBinary } : {}),
-        args: [...chromeArgs],
-      },
+      'goog:chromeOptions': chromeEnv.chromeOptionsForWdio(),
     },
   ],
-  logLevel: onRailway ? 'info' : 'warn',
+  logLevel: chromeEnv.onRailway() ? 'info' : 'warn',
   bail: 0,
   waitforTimeout: 10_000,
   connectionRetryTimeout: 120_000,
@@ -74,7 +39,7 @@ exports.config = {
     [
       'chromedriver',
       {
-        chromedriverCustomPath: chromedriverCustomPath(),
+        chromedriverCustomPath: chromeEnv.chromedriverExecutablePath(),
       },
     ],
   ],

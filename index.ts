@@ -1,3 +1,4 @@
+import './features/pancake-einvoice/loadServerEnv';
 import http from 'http';
 import { createApp } from './createApp';
 
