@@ -3,3 +3,4 @@ wdio/node_modules/
 .env
 *.log
 filledInvoices.json
+compose.integrations.env

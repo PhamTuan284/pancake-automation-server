@@ -6,3 +6,6 @@ wdio/node_modules
 .railway
 .env
 .env.*
+docker-compose.integrations.yml
+compose.integrations.env.example
+compose.integrations.env
