@@ -11,10 +11,7 @@
     "automation": "tsx scripts/runAutomation.ts",
     "seed-mongo": "tsx scripts/seedInvoiceDataToMongo.ts",
     "test-mongo": "tsx scripts/testMongoConnection.ts",
-    "test:e2e": "wdio run wdio.conf.ts",
-    "integrations:up": "docker compose -f docker-compose.integrations.yml up -d",
-    "integrations:down": "docker compose -f docker-compose.integrations.yml down",
-    "integrations:logs": "docker compose -f docker-compose.integrations.yml logs -f --tail=80"
+    "test:e2e": "wdio run wdio.conf.ts"
   },
   "dependencies": {
     "chromedriver": "^146.0.0",
