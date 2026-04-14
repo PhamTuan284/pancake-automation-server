@@ -37,7 +37,7 @@ function bundleWdioStepsSync(): void {
 }
 
 /**
- * Run WDIO via `node …/wdio.js run wdio.conf.ts` (not `npm run`), because on Windows
+ * Run WDIO via `node …/wdio.js run wdio.conf.cjs` (not `npm run`), because on Windows
  * spawning `npm.cmd` without a shell often fails with `spawn EINVAL` on Node 20+.
  */
 function runWdioE2e(): Promise<void> {
@@ -52,7 +52,7 @@ function runWdioE2e(): Promise<void> {
     'wdio.js'
   );
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [wdioCli, 'run', 'wdio.conf.ts'], {
+    const child = spawn(process.execPath, [wdioCli, 'run', 'wdio.conf.cjs'], {
       cwd: serverRoot,
       env: process.env,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -73,7 +73,7 @@ function runWdioE2e(): Promise<void> {
       const tail = Buffer.concat(chunks).toString('utf8').slice(-6000);
       reject(
         new Error(
-          `wdio run wdio.conf.ts exited with code ${code ?? 'unknown'}\n${tail}`
+          `wdio run wdio.conf.cjs exited with code ${code ?? 'unknown'}\n${tail}`
         )
       );
     });

@@ -11,7 +11,7 @@
     "automation": "tsx scripts/runAutomation.ts",
     "seed-mongo": "tsx scripts/seedInvoiceDataToMongo.ts",
     "test-mongo": "tsx scripts/testMongoConnection.ts",
-    "test:e2e": "tsx scripts/bundleWdioSteps.ts && wdio run wdio.conf.ts"
+    "test:e2e": "tsx scripts/bundleWdioSteps.ts && wdio run wdio.conf.cjs"
   },
   "dependencies": {
     "chromedriver": "^146.0.0",

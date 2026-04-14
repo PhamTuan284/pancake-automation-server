@@ -1,12 +1,14 @@
-import path from 'path';
-import dotenv from 'dotenv';
-import type { Options } from '@wdio/types';
+/* eslint-disable @typescript-eslint/no-require-imports */
+const path = require('path');
+const dotenv = require('dotenv');
 
 dotenv.config({ path: path.join(__dirname, '.env') });
 
-/** Same signal as wdio-server: fewer workers on Railway. */
+/**
+ * Use `.cjs` (not `.ts`) so @wdio/cli does not inject ts-node into NODE_OPTIONS for the
+ * whole process tree — that breaks Cucumber's require() of ESM formatters on Linux.
+ */
 const onRailway = Boolean(process.env.RAILWAY_ENVIRONMENT);
-
 const headless =
   onRailway ||
   process.env.E2E_HEADLESS === '1' ||
@@ -14,10 +16,6 @@ const headless =
 
 const chromeBinary = process.env.CHROME_BIN || process.env.CHROMIUM_BIN;
 
-/**
- * Headless / container Chrome flags — aligned with
- * https://github.com/nguyencongcuong/wdio-server/blob/master/wdio/wdio.conf.ts
- */
 const chromeArgsHeadless = [
   '--headless=new',
   '--no-sandbox',
@@ -25,9 +23,8 @@ const chromeArgsHeadless = [
   '--disable-dev-shm-usage',
   '--disable-gpu',
   '--window-size=1920,1080',
-] as const;
+];
 
-/** Local headed runs */
 const chromeArgsHeaded = [
   '--disable-gpu',
   '--no-sandbox',
@@ -36,23 +33,19 @@ const chromeArgsHeaded = [
   '--no-first-run',
   '--start-maximized',
   '--incognito',
-] as const;
+];
 
-const chromeArgs = headless
-  ? [...chromeArgsHeadless]
-  : [...chromeArgsHeaded];
+const chromeArgs = headless ? [...chromeArgsHeadless] : [...chromeArgsHeaded];
 
-function chromedriverCustomPath(): string {
+function chromedriverCustomPath() {
   if (process.env.CHROMEDRIVER_PATH) {
     return process.env.CHROMEDRIVER_PATH;
   }
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  return require('chromedriver').path as string;
+  return require('chromedriver').path;
 }
 
-export const config: Options.Testrunner = {
+exports.config = {
   runner: 'local',
-  // Do not set WDIO_LOAD_TS_NODE (avoids ts-node in workers + broken require() of Cucumber ESM on Linux).
   autoCompileOpts: {
     autoCompile: false,
   },
