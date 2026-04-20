@@ -319,6 +319,7 @@ export async function fillInvoiceForm(browser: WdioBrowser, data: InvoiceRow) {
 
   await fillInvoiceField(browser, 'phone', data.phone);
   await fillInvoiceField(browser, 'buyerName', data.buyerName);
+  await fillInvoiceField(browser, 'operationName', data.operationName);
   await fillInvoiceField(browser, 'taxCode', data.taxCode);
   await fillInvoiceField(browser, 'address', data.address);
   await scrollInvoiceModalBodyToEnd(browser);

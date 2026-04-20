@@ -78,7 +78,8 @@ export function xpathsForPlaceholder(placeholderSubstring: string) {
 
 export const INVOICE_FIELD_PLACEHOLDERS = {
   phone: ['Nhập số điện thoại', 'số điện thoại'],
-  buyerName: ['Nhập đơn vị mua hàng', 'đơn vị mua hàng'],
+  buyerName: ['Nhập tên người mua', 'tên người mua'],
+  operationName: ['Nhập đơn vị mua hàng', 'đơn vị mua hàng'],
   taxCode: ['Nhập mã số thuế', 'mã số thuế'],
   address: ['Nhập địa chỉ', 'địa chỉ'],
   idNumber: ['Nhập số CCCD', 'số CCCD', 'CCCD'],
@@ -86,12 +87,8 @@ export const INVOICE_FIELD_PLACEHOLDERS = {
 
 export const INVOICE_FIELD_LABELS = {
   phone: ['Số điện thoại', 'Điện thoại'],
-  buyerName: [
-    'Đơn vị mua hàng',
-    'Người mua hàng',
-    'Tên đơn vị mua hàng',
-    'Khách hàng',
-  ],
+  buyerName: ['Người mua hàng', 'Tên người mua'],
+  operationName: ['Đơn vị mua hàng', 'Tên đơn vị mua hàng', 'Khách hàng'],
   taxCode: ['Mã số thuế', 'MST'],
   address: ['Địa chỉ'],
   idNumber: [

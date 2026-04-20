@@ -18,11 +18,13 @@ export async function processInvoicesByBuyerName(
   invoiceRows: InvoiceRow[]
 ) {
   const processed = new Set(
-    loadFilledInvoiceKeys().map((k) => normalizeNameKey(String(k)))
+    (await loadFilledInvoiceKeys(browser)).map((k) =>
+      normalizeNameKey(String(k))
+    )
   );
   if (processed.size > 0) {
     console.log(
-      `[filled] Skipping ${processed.size} row(s) from previous runs (filledInvoices.json)`
+      `[filled] Skipping ${processed.size} row(s) from previous runs (localStorage)`
     );
   }
 
@@ -78,7 +80,7 @@ export async function processInvoicesByBuyerName(
         await browser.pause(3000);
 
         processed.add(key);
-        persistFilledInvoiceKey(key);
+        await persistFilledInvoiceKey(browser, key);
         processedOneThisStep = true;
         processedOneOnPage = true;
         break;

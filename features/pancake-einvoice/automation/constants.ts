@@ -1,5 +1,3 @@
-import path from 'path';
-
 export const INVOICE_URL =
   'https://pos.pancake.vn/shop/1942925579/e-invoices';
 
@@ -9,11 +7,5 @@ export const POS_HOME_URL = 'https://pos.pancake.vn/';
 /** Successful POS login lands here; `getUrl()` may include query/hash. */
 export const POS_DASHBOARD_URL_SNIPPET = 'pos.pancake.vn/dashboard';
 
-/** Persists filled row keys at server package root (next to `index.ts`). */
-export const FILLED_INVOICES_FILE = path.join(
-  __dirname,
-  '..',
-  '..',
-  '..',
-  'filledInvoices.json'
-);
+/** localStorage key used on Pancake POS to remember processed rows. */
+export const FILLED_INVOICES_STORAGE_KEY = 'pancake.einvoice.filledRows';

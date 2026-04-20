@@ -1,51 +1,80 @@
-import fs from 'fs';
-import { FILLED_INVOICES_FILE } from './constants';
+import type { WdioBrowser } from './types';
+import { FILLED_INVOICES_STORAGE_KEY } from './constants';
 
 /** Row keys we already filled + saved (same normalization as in-run `processed`). */
-export function loadFilledInvoiceKeys(): string[] {
-  try {
-    if (!fs.existsSync(FILLED_INVOICES_FILE)) {
+export async function loadFilledInvoiceKeys(
+  browser: WdioBrowser
+): Promise<string[]> {
+  return browser.execute((storageKey: string) => {
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (!raw) {
+        return [];
+      }
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed.filter(Boolean).map(String);
+      }
+      if (
+        parsed &&
+        typeof parsed === 'object' &&
+        Array.isArray((parsed as { keys?: unknown }).keys)
+      ) {
+        return (parsed as { keys: unknown[] }).keys.filter(Boolean).map(String);
+      }
+      return [];
+    } catch {
       return [];
     }
-    const j = JSON.parse(
-      fs.readFileSync(FILLED_INVOICES_FILE, 'utf8')
-    ) as unknown;
-    if (Array.isArray(j)) {
-      return j.filter(Boolean).map(String);
-    }
-    if (
-      j &&
-      typeof j === 'object' &&
-      Array.isArray((j as { keys?: unknown }).keys)
-    ) {
-      return (j as { keys: unknown[] }).keys.filter(Boolean).map(String);
-    }
-    return [];
-  } catch {
-    return [];
-  }
+  }, FILLED_INVOICES_STORAGE_KEY);
 }
 
-export function persistFilledInvoiceKey(key: string | undefined | null) {
+export async function persistFilledInvoiceKey(
+  browser: WdioBrowser,
+  key: string | undefined | null
+) {
   if (!key) {
     return;
   }
-  const existing = new Set(loadFilledInvoiceKeys());
-  if (existing.has(key)) {
-    return;
+
+  const result = await browser.execute(
+    (storageKey: string, incomingKey: string) => {
+      try {
+        const raw = window.localStorage.getItem(storageKey);
+        const parsed = raw ? (JSON.parse(raw) as unknown) : null;
+        const fromPayload =
+          parsed &&
+          typeof parsed === 'object' &&
+          Array.isArray((parsed as { keys?: unknown }).keys)
+            ? (parsed as { keys: unknown[] }).keys
+            : Array.isArray(parsed)
+              ? parsed
+              : [];
+        const existing = new Set(fromPayload.filter(Boolean).map(String));
+        const alreadySaved = existing.has(incomingKey);
+        if (!alreadySaved) {
+          existing.add(incomingKey);
+          const keys = [...existing].sort();
+          window.localStorage.setItem(
+            storageKey,
+            JSON.stringify({
+              keys,
+              updatedAt: new Date().toISOString(),
+            })
+          );
+        }
+        return { alreadySaved, total: existing.size };
+      } catch {
+        return { alreadySaved: false, total: null };
+      }
+    },
+    FILLED_INVOICES_STORAGE_KEY,
+    key
+  );
+
+  if (!result.alreadySaved) {
+    console.log(
+      `[filled] Saved row key to localStorage (${result.total ?? '?' } total)`
+    );
   }
-  existing.add(key);
-  const keys = [...existing].sort();
-  fs.writeFileSync(
-    FILLED_INVOICES_FILE,
-    JSON.stringify(
-      { keys, updatedAt: new Date().toISOString() },
-      null,
-      2
-    ),
-    'utf8'
-  );
-  console.log(
-    `[filled] Saved row key to filledInvoices.json (${keys.length} total)`
-  );
 }
