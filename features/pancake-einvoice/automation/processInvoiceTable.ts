@@ -1,5 +1,5 @@
 import type { InvoiceRow } from '../../../common/types/invoice';
-import type { WdioBrowser } from './types';
+import type { WdioBrowser, WdioElement } from './types';
 import { INVOICE_URL } from './constants';
 import { SEL } from './xpathInvoiceUi';
 import {
@@ -12,6 +12,76 @@ import {
   normalizeNameKey,
 } from './invoiceRowMatch';
 import { fillInvoiceForm } from './invoiceModalFill';
+
+function isClickInterceptedError(err: unknown): boolean {
+  if (!(err instanceof Error)) {
+    return false;
+  }
+  const msg = String(err.message || '').toLowerCase();
+  return msg.includes('click intercepted');
+}
+
+async function waitTableInteractionStability(browser: WdioBrowser): Promise<void> {
+  await browser.execute(() => {
+    const interactiveNoise = [
+      '.ant-tooltip',
+      '.ant-popover',
+      '.ant-message',
+      '.ant-notification',
+      '.ant-dropdown',
+      '.ant-spin-spinning',
+    ];
+    for (const sel of interactiveNoise) {
+      const nodes = Array.from(document.querySelectorAll(sel));
+      for (const node of nodes) {
+        const el = node as HTMLElement;
+        if (!el.offsetParent) {
+          continue;
+        }
+        const style = window.getComputedStyle(el);
+        if (style.display !== 'none' && style.visibility !== 'hidden') {
+          el.style.pointerEvents = 'none';
+        }
+      }
+    }
+  });
+  await browser.pause(120);
+}
+
+async function clickInvoiceRowSafely(
+  browser: WdioBrowser,
+  row: WdioElement
+): Promise<void> {
+  await row.scrollIntoView({ block: 'center' });
+  await row.waitForDisplayed({ timeout: 8000 });
+  await waitTableInteractionStability(browser);
+
+  try {
+    await row.click();
+    return;
+  } catch (err) {
+    if (!isClickInterceptedError(err)) {
+      throw err;
+    }
+  }
+
+  await browser.pause(250);
+  await row.scrollIntoView({ block: 'center' });
+  await waitTableInteractionStability(browser);
+  try {
+    await row.click();
+    return;
+  } catch (err) {
+    if (!isClickInterceptedError(err)) {
+      throw err;
+    }
+  }
+
+  await browser.execute((el: HTMLElement) => {
+    el.scrollIntoView({ block: 'center' });
+    el.click();
+  }, row as unknown as HTMLElement);
+}
 
 export async function processInvoicesByBuyerName(
   browser: WdioBrowser,
@@ -74,7 +144,7 @@ export async function processInvoicesByBuyerName(
           continue;
         }
 
-        await row.click();
+        await clickInvoiceRowSafely(browser, row);
         await browser.pause(4000);
         await fillInvoiceForm(browser, data);
         await browser.pause(3000);
