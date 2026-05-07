@@ -42,9 +42,8 @@ function envForWdioChild(): NodeJS.ProcessEnv {
 }
 
 function bundleWdioStepsSync(): void {
-  const tsxMjs = path.join(serverRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
-  const bundleScript = path.join(serverRoot, 'scripts', 'bundleWdioSteps.ts');
-  execFileSync(process.execPath, [tsxMjs, bundleScript], {
+  const bundleScript = path.join(serverRoot, 'scripts', 'bundleWdioSteps.cjs');
+  execFileSync(process.execPath, [bundleScript], {
     cwd: serverRoot,
     stdio: 'inherit',
     env: process.env,

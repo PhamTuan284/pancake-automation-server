@@ -8,11 +8,11 @@
     "start": "tsx index.ts",
     "dev": "nodemon --exec tsx index.ts",
     "typecheck": "tsc --noEmit",
-    "automation": "tsx scripts/bundleWdioSteps.ts && node scripts/runWdioE2e.cjs --spec ./wdio/features/pancake-einvoice-automation.feature",
+    "automation": "node scripts/bundleWdioSteps.cjs && node scripts/runWdioE2e.cjs --spec ./wdio/features/pancake-einvoice-automation.feature",
     "seed-mongo": "tsx scripts/seedInvoiceDataToMongo.ts",
     "test-mongo": "tsx scripts/testMongoConnection.ts",
-    "test:e2e": "tsx scripts/bundleWdioSteps.ts && node scripts/runWdioE2e.cjs",
-    "test:e2e:smoke": "tsx scripts/bundleWdioSteps.ts && node scripts/runWdioE2e.cjs --spec ./wdio/features/pancake-login.feature"
+    "test:e2e": "node scripts/bundleWdioSteps.cjs && node scripts/runWdioE2e.cjs",
+    "test:e2e:smoke": "node scripts/bundleWdioSteps.cjs && node scripts/runWdioE2e.cjs --spec ./wdio/features/pancake-login.feature"
   },
   "dependencies": {
     "chromedriver": "^146.0.0",
