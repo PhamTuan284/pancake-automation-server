@@ -187,3 +187,19 @@ export async function deletePancakeWebhookEvents(
   await webhookService.clearStoredWebhookEvents();
   res.json({ ok: true });
 }
+
+export async function getPancakeVariantSalesAnalytics(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const analytics = await webhookService.getVariantSalesAnalytics(
+      req.query as Record<string, unknown>
+    );
+    res.json({ ok: true, analytics });
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : 'Failed to compute variant analytics';
+    res.status(400).json({ ok: false, error: message });
+  }
+}
