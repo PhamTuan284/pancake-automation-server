@@ -53,6 +53,10 @@ webhookRouter.delete('/pancake-webhook/events', (req, res) => {
   void webhookController.deletePancakeWebhookEvents(req, res);
 });
 
+webhookRouter.get('/pancake-webhook/analytics/variant-sales/zalo-text', (req, res) => {
+  void webhookController.getPancakeVariantSalesZaloText(req, res);
+});
+
 webhookRouter.get('/pancake-webhook/analytics/variant-sales', (req, res) => {
   void webhookController.getPancakeVariantSalesAnalytics(req, res);
 });

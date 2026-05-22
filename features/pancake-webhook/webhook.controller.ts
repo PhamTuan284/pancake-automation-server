@@ -203,3 +203,23 @@ export async function getPancakeVariantSalesAnalytics(
     res.status(400).json({ ok: false, error: message });
   }
 }
+
+/** Plain-text report for n8n → Zalo Bot sendMessage. */
+export async function getPancakeVariantSalesZaloText(
+  req: Request,
+  res: Response
+): Promise<void> {
+  const query = req.query as Record<string, unknown>;
+  if (!webhookService.verifyZaloReportSecret(query, req.header('x-report-secret'))) {
+    res.status(401).json({ ok: false, error: 'Invalid report secret' });
+    return;
+  }
+  try {
+    const payload = await webhookService.getVariantSalesZaloText(query);
+    res.json({ ok: true, ...payload });
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : 'Failed to build Zalo report text';
+    res.status(400).json({ ok: false, error: message });
+  }
+}
