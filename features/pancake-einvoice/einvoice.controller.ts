@@ -1,9 +1,27 @@
 import type { Request, Response } from 'express';
-import { triggerE2eTestRun } from './automationRunner.service';
+import {
+  resolveMeiTVariantForE2e,
+  triggerE2eTestRun,
+} from './automationRunner.service';
+import { resolveInvoiceShopKey } from './invoiceShops';
 import * as einvoiceService from './einvoice.service';
 
+function shopKeyFromRequest(req: Request) {
+  return resolveInvoiceShopKey(req.params.shopKey);
+}
+
+export function getInvoiceShopConfig(req: Request, res: Response): void {
+  try {
+    const shopKey = shopKeyFromRequest(req);
+    res.json(einvoiceService.getShopPanelConfig(shopKey));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Invalid shop';
+    res.status(400).json({ error: message });
+  }
+}
+
 export async function getInvoiceData(
-  _req: Request,
+  req: Request,
   res: Response
 ): Promise<void> {
   if (!einvoiceService.mongoEnabled()) {
@@ -14,9 +32,14 @@ export async function getInvoiceData(
     return;
   }
   try {
-    const rows = await einvoiceService.listInvoiceClients();
-    res.json({ rows, count: rows.length });
+    const shopKey = shopKeyFromRequest(req);
+    const rows = await einvoiceService.listInvoiceClients(shopKey);
+    res.json({ rows, count: rows.length, shopKey });
   } catch (err) {
+    if (err instanceof Error && err.message.startsWith('Invalid shop')) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
     console.error(err);
     res.status(500).json({ error: 'Không đọc được dữ liệu từ MongoDB' });
   }
@@ -34,6 +57,7 @@ export async function putInvoiceData(
     return;
   }
   try {
+    const shopKey = shopKeyFromRequest(req);
     const body = req.body as { rows?: unknown[] } | undefined;
     if (!body || !Array.isArray(body.rows)) {
       res.status(400).json({ error: 'Cần JSON dạng { "rows": [ ... ] }' });
@@ -43,10 +67,14 @@ export async function putInvoiceData(
       body.rows
     );
     einvoiceService.assertRowsHaveBuyerOrUnit(normalized);
-    await einvoiceService.replaceInvoiceClients(normalized);
-    res.json({ ok: true, count: normalized.length });
+    await einvoiceService.replaceInvoiceClients(shopKey, normalized);
+    res.json({ ok: true, count: normalized.length, shopKey });
   } catch (err) {
     if (err instanceof Error && err.message.startsWith('Dòng ')) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    if (err instanceof Error && err.message.startsWith('Invalid shop')) {
       res.status(400).json({ error: err.message });
       return;
     }
@@ -56,9 +84,16 @@ export async function putInvoiceData(
 }
 
 export function getInvoiceExcelTemplate(
-  _req: Request,
+  req: Request,
   res: Response
 ): void {
+  try {
+    shopKeyFromRequest(req);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Invalid shop';
+    res.status(400).json({ error: message });
+    return;
+  }
   const buf = einvoiceService.invoiceExcelTemplateBuffer();
   res.setHeader(
     'Content-Type',
@@ -83,6 +118,7 @@ export async function postUploadInvoiceExcel(
     return;
   }
   try {
+    const shopKey = shopKeyFromRequest(req);
     if (!req.file?.buffer) {
       res.status(400).json({ error: 'Vui lòng chọn file Excel' });
       return;
@@ -96,7 +132,7 @@ export async function postUploadInvoiceExcel(
       return;
     }
     try {
-      await einvoiceService.replaceInvoiceClients(data);
+      await einvoiceService.replaceInvoiceClients(shopKey, data);
     } catch (persistErr) {
       console.error(persistErr);
       res.status(500).json({
@@ -107,8 +143,12 @@ export async function postUploadInvoiceExcel(
       });
       return;
     }
-    res.json({ ok: true, count: data.length });
+    res.json({ ok: true, count: data.length, shopKey });
   } catch (err) {
+    if (err instanceof Error && err.message.startsWith('Invalid shop')) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
     console.error(err);
     const message =
       err instanceof Error ? err.message : 'Không đọc được file Excel';
@@ -119,16 +159,16 @@ export async function postUploadInvoiceExcel(
 type RunE2eBody = {
   spec?: string;
   wdioArgs?: string[];
+  shop?: string;
+  /** MeiT tab only: `mode` (default) or `daily`. */
+  meitVariant?: string;
 };
 
-/**
- * Run WDIO/Cucumber. Optional body:
- * - `{ "spec": "./wdio/features/pancake-einvoice-automation.feature" }` — invoice automation only
- * - `{ "wdioArgs": ["--spec", "./wdio/features/pancake-login.feature"] }` — raw extra args after config
- * Omit body to run all features from `wdio.conf.cjs`.
- */
 export async function postRunE2eTests(req: Request, res: Response): Promise<void> {
   try {
+    const shopKey = resolveInvoiceShopKey(
+      req.params.shopKey ?? (req.body as RunE2eBody)?.shop
+    );
     const body = (req.body || {}) as RunE2eBody;
     const extra: string[] = [];
     if (typeof body.spec === 'string' && body.spec.trim()) {
@@ -141,11 +181,16 @@ export async function postRunE2eTests(req: Request, res: Response): Promise<void
         }
       }
     }
-    await triggerE2eTestRun(extra);
-    res.json({ status: 'completed' });
+    const meitVariant = resolveMeiTVariantForE2e(shopKey, body.meitVariant);
+    await triggerE2eTestRun(extra, shopKey, meitVariant);
+    res.json({ status: 'completed', shopKey });
   } catch (err) {
     if (err instanceof Error && err.message === 'E2E test already running') {
       res.status(409).json({ error: err.message });
+      return;
+    }
+    if (err instanceof Error && err.message.startsWith('Invalid shop')) {
+      res.status(400).json({ error: err.message });
       return;
     }
     console.error('E2E tests failed:', err);
@@ -153,4 +198,45 @@ export async function postRunE2eTests(req: Request, res: Response): Promise<void
       err instanceof Error ? err.message : 'E2E failed, see server logs.';
     res.status(500).json({ error: detail });
   }
+}
+
+/** Legacy routes without :shopKey default to meit. */
+export async function getInvoiceDataLegacy(
+  req: Request,
+  res: Response
+): Promise<void> {
+  req.params.shopKey = 'meit';
+  return getInvoiceData(req, res);
+}
+
+export async function putInvoiceDataLegacy(
+  req: Request,
+  res: Response
+): Promise<void> {
+  req.params.shopKey = 'meit';
+  return putInvoiceData(req, res);
+}
+
+export function getInvoiceExcelTemplateLegacy(
+  req: Request,
+  res: Response
+): void {
+  req.params.shopKey = 'meit';
+  getInvoiceExcelTemplate(req, res);
+}
+
+export async function postUploadInvoiceExcelLegacy(
+  req: Request,
+  res: Response
+): Promise<void> {
+  req.params.shopKey = 'meit';
+  return postUploadInvoiceExcel(req, res);
+}
+
+export async function postRunE2eTestsLegacy(
+  req: Request,
+  res: Response
+): Promise<void> {
+  req.params.shopKey = 'meit';
+  return postRunE2eTests(req, res);
 }

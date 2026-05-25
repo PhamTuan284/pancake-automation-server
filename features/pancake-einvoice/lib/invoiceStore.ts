@@ -1,4 +1,5 @@
-import InvoiceClient from '../../../common/models/InvoiceClient';
+import type { InvoiceShopKey } from '../invoiceShops';
+import { getInvoiceClientModel } from '../../../common/models/invoiceClientModel';
 import { connectMongo, useMongo } from '../../../common/mongo';
 import { normalizeInvoiceRow } from './invoiceExcel';
 import type { InvoiceRow } from '../../../common/types/invoice';
@@ -23,35 +24,36 @@ function docToRow(doc: {
   });
 }
 
-async function loadRowsFromMongo(): Promise<InvoiceRow[]> {
+async function loadRowsFromMongo(shopKey: InvoiceShopKey): Promise<InvoiceRow[]> {
   await connectMongo();
+  const InvoiceClient = getInvoiceClientModel(shopKey);
   const docs = await InvoiceClient.find().sort({ order: 1 }).lean();
   return docs.map(docToRow);
 }
 
-/**
- * Read invoice rows from MongoDB `invoice_clients` only (for API table/UI).
- * Caller should check `useMongo()` first or handle missing URI.
- */
-export async function loadInvoiceClientsFromDb(): Promise<InvoiceRow[]> {
-  return loadRowsFromMongo();
+export async function loadInvoiceClientsFromDb(
+  shopKey: InvoiceShopKey
+): Promise<InvoiceRow[]> {
+  return loadRowsFromMongo(shopKey);
 }
 
-/** Invoice rows from MongoDB only (automation, same as API). */
-export async function loadNormalizedRows(): Promise<InvoiceRow[]> {
+export async function loadNormalizedRows(
+  shopKey: InvoiceShopKey
+): Promise<InvoiceRow[]> {
   if (!useMongo()) {
     throw new Error(
       'Invoice data requires MongoDB: set MONGODB_URI or MONGO_URL in .env'
     );
   }
-  return loadRowsFromMongo();
+  return loadRowsFromMongo(shopKey);
 }
 
-/** Replace `invoice_clients` from rows (Mongo only; caller must ensure URI is set). */
 export async function replaceInvoiceClientsInMongo(
+  shopKey: InvoiceShopKey,
   rows: InvoiceRow[]
 ): Promise<void> {
   await connectMongo();
+  const InvoiceClient = getInvoiceClientModel(shopKey);
   const normalized = rows.map((r) => normalizeInvoiceRow(r || {}));
   await InvoiceClient.deleteMany({});
   if (normalized.length > 0) {
@@ -62,13 +64,16 @@ export async function replaceInvoiceClientsInMongo(
   await InvoiceClient.collection.createIndex({ order: 1 });
 }
 
-export async function replaceAllRows(rows: InvoiceRow[]): Promise<void> {
+export async function replaceAllRows(
+  shopKey: InvoiceShopKey,
+  rows: InvoiceRow[]
+): Promise<void> {
   if (!useMongo()) {
     throw new Error(
       'Persisting invoice rows requires MongoDB: set MONGODB_URI or MONGO_URL'
     );
   }
-  await replaceInvoiceClientsInMongo(rows);
+  await replaceInvoiceClientsInMongo(shopKey, rows);
 }
 
 export { useMongo, normalizeInvoiceRow };

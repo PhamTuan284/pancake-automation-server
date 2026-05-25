@@ -15,7 +15,7 @@
     "test:e2e:smoke": "node scripts/bundleWdioSteps.cjs && node scripts/runWdioE2e.cjs --spec ./wdio/features/pancake-login.feature"
   },
   "dependencies": {
-    "chromedriver": "^146.0.0",
+    "chromedriver": "^148.0.4",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",

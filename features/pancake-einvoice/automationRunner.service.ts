@@ -1,5 +1,10 @@
 import { execFileSync, spawn } from 'child_process';
 import path from 'path';
+import {
+  resolveMeiTAutomationVariant,
+  type InvoiceShopKey,
+  type MeiTAutomationVariant,
+} from './invoiceShops';
 
 /** WDIO spec for the full e-invoice table flow (API + webhook + `npm run automation`). */
 export const WDIO_SPEC_EINVOICE_AUTOMATION =
@@ -22,8 +27,19 @@ const serverRoot = path.join(__dirname, '..', '..');
  * Node 22+ `require(esm)` is disabled for WDIO via `scripts/runWdioE2e.cjs` (sets NODE_OPTIONS so
  * forked WDIO workers inherit the flag).
  */
-function envForWdioChild(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env };
+function envForWdioChild(
+  shopKey: InvoiceShopKey,
+  meitVariant?: MeiTAutomationVariant
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    PANCAKE_ACTIVE_INVOICE_SHOP: shopKey,
+  };
+  if (shopKey === 'meit') {
+    env.PANCAKE_ACTIVE_MEIT_VARIANT = meitVariant ?? 'mode';
+  } else {
+    delete env.PANCAKE_ACTIVE_MEIT_VARIANT;
+  }
   delete env.WDIO_LOAD_TS_NODE;
   const nodeOptions = env.NODE_OPTIONS;
   if (typeof nodeOptions === 'string' && nodeOptions.length > 0) {
@@ -55,14 +71,18 @@ function bundleWdioStepsSync(): void {
  * `npm.cmd` without a shell often fails with `spawn EINVAL` on Node 20+.
  * @param extraWdioArgs e.g. `['--spec', WDIO_SPEC_EINVOICE_AUTOMATION]` to run one feature.
  */
-function runWdioE2e(extraWdioArgs: string[] = []): Promise<void> {
+function runWdioE2e(
+  extraWdioArgs: string[] = [],
+  shopKey: InvoiceShopKey = 'meit',
+  meitVariant: MeiTAutomationVariant = 'mode'
+): Promise<void> {
   bundleWdioStepsSync();
 
   const launcher = path.join(serverRoot, 'scripts', 'runWdioE2e.cjs');
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [launcher, ...extraWdioArgs], {
       cwd: serverRoot,
-      env: envForWdioChild(),
+      env: envForWdioChild(shopKey, shopKey === 'meit' ? meitVariant : undefined),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     const chunks: Buffer[] = [];
@@ -92,15 +112,35 @@ function runWdioE2e(extraWdioArgs: string[] = []): Promise<void> {
  * Run Cucumber/WDIO. Pass `['--spec', WDIO_SPEC_EINVOICE_AUTOMATION]` for invoice automation only.
  */
 export async function triggerE2eTestRun(
-  extraWdioArgs: string[] = []
+  extraWdioArgs: string[] = [],
+  shopKey: InvoiceShopKey = 'meit',
+  meitVariant: MeiTAutomationVariant = 'mode'
 ): Promise<void> {
   if (e2eRunning) {
     throw new Error('E2E test already running');
   }
   e2eRunning = true;
   try {
-    await runWdioE2e(extraWdioArgs);
+    await runWdioE2e(extraWdioArgs, shopKey, meitVariant);
   } finally {
     e2eRunning = false;
   }
+}
+
+export function resolveMeiTVariantForE2e(
+  shopKey: InvoiceShopKey,
+  raw: unknown
+): MeiTAutomationVariant {
+  if (shopKey !== 'meit') {
+    return 'mode';
+  }
+  const v = trimString(raw).toLowerCase();
+  if (!v) {
+    return 'mode';
+  }
+  return resolveMeiTAutomationVariant(v);
+}
+
+function trimString(value: unknown): string {
+  return String(value ?? '').trim();
 }

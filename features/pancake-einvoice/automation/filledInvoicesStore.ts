@@ -1,5 +1,5 @@
 import type { WdioBrowser } from './types';
-import { FILLED_INVOICES_STORAGE_KEY } from './constants';
+import { getFilledInvoicesStorageKey } from './constants';
 
 /** Row keys we already filled + saved (same normalization as in-run `processed`). */
 export async function loadFilledInvoiceKeys(
@@ -26,7 +26,7 @@ export async function loadFilledInvoiceKeys(
     } catch {
       return [];
     }
-  }, FILLED_INVOICES_STORAGE_KEY);
+  }, getFilledInvoicesStorageKey());
 }
 
 export async function persistFilledInvoiceKey(
@@ -68,7 +68,7 @@ export async function persistFilledInvoiceKey(
         return { alreadySaved: false, total: null };
       }
     },
-    FILLED_INVOICES_STORAGE_KEY,
+    getFilledInvoicesStorageKey(),
     key
   );
 

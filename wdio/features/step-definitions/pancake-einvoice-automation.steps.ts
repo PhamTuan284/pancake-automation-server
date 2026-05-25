@@ -1,6 +1,7 @@
 import { Before, Given, Then, When } from '@wdio/cucumber-framework';
 import { browser, expect } from '@wdio/globals';
 import type { InvoiceRow } from '../../../common/types/invoice';
+import { getActiveInvoiceShopKey } from '../../../features/pancake-einvoice/invoiceShops';
 import { loadNormalizedRows, useMongo } from '../../../features/pancake-einvoice/lib/invoiceStore';
 import { loginToPancake } from '../../../features/pancake-einvoice/automation/pancakeLogin';
 import { processInvoicesByBuyerName } from '../../../features/pancake-einvoice/automation/processInvoiceTable';
@@ -20,7 +21,7 @@ Given('MongoDB is configured for invoice clients', () => {
 });
 
 When('I load invoice client rows from MongoDB', async () => {
-  loadedInvoiceRows = await loadNormalizedRows();
+  loadedInvoiceRows = await loadNormalizedRows(getActiveInvoiceShopKey());
 });
 
 When('I sign in to Pancake and open the e-invoices page', async () => {

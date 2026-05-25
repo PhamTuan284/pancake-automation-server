@@ -1,6 +1,13 @@
 import type { Request } from 'express';
 import PancakeWebhookEvent from '../../../common/models/PancakeWebhookEvent';
 import { connectMongo, useMongo } from '../../../common/mongo';
+import {
+  getInvoiceShopConfig,
+  getPancakeApiKeyForShop,
+  isInvoiceShopKey,
+  resolveInvoiceShopKey,
+  type InvoiceShopKey,
+} from '../../pancake-einvoice/invoiceShops';
 
 const DEFAULT_PANCAKE_API_BASE_URL = 'https://pos.pages.fm/api/v1';
 const MAX_WEBHOOK_EVENTS_IN_MEMORY = 200;
@@ -31,6 +38,7 @@ export type PancakeWebhookConfig = {
 
 type PancakeWebhookConfigRequest = {
   shop?: Partial<PancakeWebhookConfig>;
+  shopKey?: string;
   shopId?: number | string;
   apiKey?: string;
   webhook_enable?: boolean;
@@ -61,17 +69,43 @@ function resolvePancakeApiBaseUrl(): string {
   return (url || DEFAULT_PANCAKE_API_BASE_URL).replace(/\/+$/, '');
 }
 
-function resolveApiKey(inputApiKey?: unknown): string {
-  return trimString(inputApiKey) || trimString(process.env.PANCAKE_API_KEY);
+function resolveShopKey(inputShopKey?: unknown): InvoiceShopKey {
+  const raw = trimString(inputShopKey).toLowerCase();
+  if (raw) {
+    return resolveInvoiceShopKey(raw);
+  }
+  return 'meit';
 }
 
-function resolveShopId(inputShopId?: unknown): number {
-  const raw = trimString(inputShopId) || trimString(process.env.PANCAKE_SHOP_ID);
+function resolveApiKey(
+  shopKey: InvoiceShopKey,
+  inputApiKey?: unknown
+): string {
+  return trimString(inputApiKey) || getPancakeApiKeyForShop(shopKey);
+}
+
+function resolveShopId(
+  shopKey: InvoiceShopKey,
+  inputShopId?: unknown
+): number {
+  const raw =
+    trimString(inputShopId) ||
+    getInvoiceShopConfig(shopKey).pancakeShopId;
   const value = Number(raw);
   if (!Number.isInteger(value) || value <= 0) {
-    throw new Error('Missing or invalid shop id (set PANCAKE_SHOP_ID or send shopId)');
+    const prefix = shopKey === 'dpa' ? 'PANCAKE_DPA' : 'PANCAKE_MEIT';
+    throw new Error(
+      `Missing or invalid shop id for ${getInvoiceShopConfig(shopKey).label} (set ${prefix}_SHOP_ID or send shopId)`
+    );
   }
   return value;
+}
+
+function apiKeyEnvHint(shopKey: InvoiceShopKey): string {
+  const prefix = shopKey === 'dpa' ? 'PANCAKE_DPA' : 'PANCAKE_MEIT';
+  return shopKey === 'meit'
+    ? `${prefix}_API_KEY (or PANCAKE_API_KEY)`
+    : `${prefix}_API_KEY`;
 }
 
 function normalizeHeaders(
@@ -135,11 +169,14 @@ export function normalizeWebhookConfigInput(
 export async function updatePancakeWebhookConfig(
   reqBody: PancakeWebhookConfigRequest
 ) {
-  const apiKey = resolveApiKey(reqBody.apiKey);
+  const shopKey = resolveShopKey(reqBody.shopKey);
+  const apiKey = resolveApiKey(shopKey, reqBody.apiKey);
   if (!apiKey) {
-    throw new Error('Missing API key (set PANCAKE_API_KEY or send apiKey)');
+    throw new Error(
+      `Missing API key for ${getInvoiceShopConfig(shopKey).label} (set ${apiKeyEnvHint(shopKey)} or send apiKey)`
+    );
   }
-  const shopId = resolveShopId(reqBody.shopId);
+  const shopId = resolveShopId(shopKey, reqBody.shopId);
   const config = normalizeWebhookConfigInput(reqBody);
   const baseUrl = resolvePancakeApiBaseUrl();
   const url = `${baseUrl}/shops/${shopId}?api_key=${encodeURIComponent(apiKey)}`;
@@ -169,19 +206,12 @@ export async function updatePancakeWebhookConfig(
   }
 
   return {
-    request: { shopId, baseUrl, config },
+    request: { shopKey, shopId, baseUrl, config },
     response: data,
   };
 }
 
-type LegacyWebhookRegisterInput = {
-  webhook_enable?: boolean;
-  webhook_url?: string;
-  webhook_email?: string;
-  webhook_types?: string[];
-  webhook_headers?: Record<string, string>;
-  webhook_partner?: string;
-};
+type LegacyWebhookRegisterInput = PancakeWebhookConfigRequest;
 
 export async function registerPancakeWebhook(
   input: LegacyWebhookRegisterInput
@@ -189,12 +219,18 @@ export async function registerPancakeWebhook(
   return updatePancakeWebhookConfig(input);
 }
 
-function resolveOpenApiEndpoint(pathname: string, query?: URLSearchParams): string {
+function resolveOpenApiEndpoint(
+  shopKey: InvoiceShopKey,
+  pathname: string,
+  query?: URLSearchParams
+): string {
   const baseUrl = resolvePancakeApiBaseUrl();
-  const shopId = resolveShopId();
-  const apiKey = resolveApiKey();
+  const shopId = resolveShopId(shopKey);
+  const apiKey = resolveApiKey(shopKey);
   if (!apiKey) {
-    throw new Error('Missing API key (set PANCAKE_API_KEY)');
+    throw new Error(
+      `Missing API key for ${getInvoiceShopConfig(shopKey).label} (set ${apiKeyEnvHint(shopKey)})`
+    );
   }
   const q = query ?? new URLSearchParams();
   q.set('api_key', apiKey);
@@ -203,9 +239,10 @@ function resolveOpenApiEndpoint(pathname: string, query?: URLSearchParams): stri
 
 export async function fetchPancakeOpenApi(
   pathname: string,
-  query?: URLSearchParams
+  query?: URLSearchParams,
+  shopKey: InvoiceShopKey = 'meit'
 ): Promise<unknown> {
-  const url = resolveOpenApiEndpoint(pathname, query);
+  const url = resolveOpenApiEndpoint(shopKey, pathname, query);
   const response = await fetch(url, { method: 'GET' });
   const text = await response.text();
   let data: unknown = null;
@@ -433,22 +470,48 @@ export function resolvePublicWebhookBaseUrl(): string | null {
   return raw.replace(/\/+$/, '');
 }
 
+export type WebhookShopPanelEntry = {
+  shopKey: InvoiceShopKey;
+  label: string;
+  shopId: string;
+  hasApiKey: boolean;
+};
+
 export function getLegacyWebhookPanelConfig() {
   const receiverPath = resolveWebhookReceiverPath();
   const publicBaseUrl = resolvePublicWebhookBaseUrl();
   const fullReceiverUrl = publicBaseUrl
     ? `${publicBaseUrl}${receiverPath}`
     : null;
-  const shopRaw = trimString(process.env.PANCAKE_SHOP_ID);
+  const shops: WebhookShopPanelEntry[] = (['meit', 'dpa'] as const).map(
+    (shopKey) => ({
+      shopKey,
+      label: getInvoiceShopConfig(shopKey).label,
+      shopId: getInvoiceShopConfig(shopKey).pancakeShopId,
+      hasApiKey: Boolean(getPancakeApiKeyForShop(shopKey)),
+    })
+  );
+  const meit = shops.find((s) => s.shopKey === 'meit') ?? shops[0];
   return {
     receiverPath,
     publicBaseUrl,
     fullReceiverUrl,
-    shopId: shopRaw || '',
-    hasApiKey: Boolean(resolveApiKey()),
+    shops,
+    shopId: meit.shopId,
+    hasApiKey: meit.hasApiKey,
     incomingSecretConfigured: Boolean(trimString(process.env.PANCAKE_WEBHOOK_SECRET)),
     incomingSecretHeader: resolveIncomingSecretHeaderName(),
     docUrl: 'https://api-docs.pancake.vn/#tag/webhook/put/shopsshop_id',
     webhookTypes: DEFAULT_WEBHOOK_TYPES,
   };
+}
+
+export function resolveWebhookShopKeyFromQuery(
+  query: Record<string, unknown>
+): InvoiceShopKey {
+  const raw = trimString(query.shop ?? query.shopKey).toLowerCase();
+  if (raw && isInvoiceShopKey(raw)) {
+    return raw;
+  }
+  return 'meit';
 }

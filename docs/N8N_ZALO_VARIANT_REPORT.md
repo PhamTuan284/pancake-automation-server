@@ -15,6 +15,7 @@ GET {PUBLIC_BASE}/pancake-webhook/analytics/variant-sales/zalo-text?days=7&limit
 | `days` | 7 | Số ngày thống kê |
 | `limit` | 15 | Số dòng tối đa trong tin nhắn (max 50) |
 | `eventLimit` | 500 | Số webhook đọc từ Mongo |
+| `shop` | `meit` | `meit` hoặc `dpa` — dùng API key / catalog shop tương ứng |
 | `secret` | — | Bắt buộc nếu server có `ZALO_REPORT_SECRET` |
 
 **Response:**

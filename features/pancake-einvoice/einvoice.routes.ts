@@ -14,22 +14,28 @@ const upload = multer({
   },
 });
 
-/** Routes for UI tab: Pancake · Hóa đơn điện tử */
+/** Routes for UI tabs: Pancake · Hóa đơn điện tử (DPA / MeiT) */
 export const einvoiceRouter = express.Router();
 
-einvoiceRouter.get('/invoice-data', (req, res) => {
+const shopRoutes = express.Router({ mergeParams: true });
+
+shopRoutes.get('/config', (req, res) => {
+  einvoiceController.getInvoiceShopConfig(req, res);
+});
+
+shopRoutes.get('/invoice-data', (req, res) => {
   void einvoiceController.getInvoiceData(req, res);
 });
 
-einvoiceRouter.put('/invoice-data', (req, res) => {
+shopRoutes.put('/invoice-data', (req, res) => {
   void einvoiceController.putInvoiceData(req, res);
 });
 
-einvoiceRouter.get('/invoice-excel-template', (req, res) => {
+shopRoutes.get('/invoice-excel-template', (req, res) => {
   einvoiceController.getInvoiceExcelTemplate(req, res);
 });
 
-einvoiceRouter.post('/upload-invoice-excel', (req, res) => {
+shopRoutes.post('/upload-invoice-excel', (req, res) => {
   upload.single('file')(req, res, (multerErr) => {
     if (multerErr) {
       res.status(400).json({ error: multerErr.message || 'Upload lỗi' });
@@ -39,6 +45,35 @@ einvoiceRouter.post('/upload-invoice-excel', (req, res) => {
   });
 });
 
-einvoiceRouter.post('/run-e2e-tests', (req, res) => {
+shopRoutes.post('/run-e2e-tests', (req, res) => {
   void einvoiceController.postRunE2eTests(req, res);
+});
+
+einvoiceRouter.use('/pancake-einvoice/:shopKey', shopRoutes);
+
+/** Legacy paths (MeiT shop) for older UI or scripts */
+einvoiceRouter.get('/invoice-data', (req, res) => {
+  void einvoiceController.getInvoiceDataLegacy(req, res);
+});
+
+einvoiceRouter.put('/invoice-data', (req, res) => {
+  void einvoiceController.putInvoiceDataLegacy(req, res);
+});
+
+einvoiceRouter.get('/invoice-excel-template', (req, res) => {
+  einvoiceController.getInvoiceExcelTemplateLegacy(req, res);
+});
+
+einvoiceRouter.post('/upload-invoice-excel', (req, res) => {
+  upload.single('file')(req, res, (multerErr) => {
+    if (multerErr) {
+      res.status(400).json({ error: multerErr.message || 'Upload lỗi' });
+      return;
+    }
+    void einvoiceController.postUploadInvoiceExcelLegacy(req, res);
+  });
+});
+
+einvoiceRouter.post('/run-e2e-tests', (req, res) => {
+  void einvoiceController.postRunE2eTestsLegacy(req, res);
 });

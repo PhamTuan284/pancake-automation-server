@@ -1,21 +1,13 @@
 import type { WdioBrowser } from './types';
 import {
-  INVOICE_URL,
+  getActiveInvoiceShopKey,
+  getLoginCredentialsForShop,
+} from '../invoiceShops';
+import {
+  getInvoiceUrl,
   POS_DASHBOARD_URL_SNIPPET,
   POS_HOME_URL,
 } from './constants';
-
-function getLoginCredentials() {
-  const phone = process.env.PANCAKE_LOGIN_PHONE || process.env.PANCAKE_ACCOUNT;
-  const password =
-    process.env.PANCAKE_LOGIN_PASSWORD || process.env.PANCAKE_PASSWORD;
-  if (!phone || !password) {
-    throw new Error(
-      'Missing login: set PANCAKE_LOGIN_PHONE and PANCAKE_LOGIN_PASSWORD in pancake-automation-server/.env (copy from .env.example)'
-    );
-  }
-  return { phone: String(phone).trim(), password: String(password).trim() };
-}
 
 /** XPath string literal (handles embedded ' for XPath 1.0). */
 function xpathStringLiteral(s: unknown) {
@@ -158,7 +150,9 @@ async function waitForDashboardAfterLogin(browser: WdioBrowser) {
  * Override CTA strings: `PANCAKE_LANDING_CTA_LABELS="Try now,Đăng nhập"` (comma-separated).
  */
 export async function loginToPancake(browser: WdioBrowser) {
-  const { phone, password } = getLoginCredentials();
+  const { phone, password } = getLoginCredentialsForShop(
+    getActiveInvoiceShopKey()
+  );
 
   const homeUrl = process.env.PANCAKE_POS_HOME_URL || POS_HOME_URL;
   await browser.url(homeUrl);
@@ -264,6 +258,6 @@ export async function loginToPancake(browser: WdioBrowser) {
 
   await waitForDashboardAfterLogin(browser);
 
-  await browser.url(INVOICE_URL);
+  await browser.url(getInvoiceUrl());
   await browser.pause(2000);
 }

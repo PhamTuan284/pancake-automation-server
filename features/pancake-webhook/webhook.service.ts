@@ -1,5 +1,9 @@
 import type { Request } from 'express';
 import {
+  resolveInvoiceShopKey,
+  type InvoiceShopKey,
+} from '../pancake-einvoice/invoiceShops';
+import {
   clearWebhookEvents,
   fetchPancakeOpenApi,
   getLegacyWebhookPanelConfig,
@@ -8,6 +12,7 @@ import {
   recordSyntheticWebhookEventWithPersistence,
   registerPancakeWebhook,
   resolveWebhookReceiverPath,
+  resolveWebhookShopKeyFromQuery,
   shouldAutoRunFromWebhook,
   verifyWebhookSecret,
   webhookEventStorageSource,
@@ -35,10 +40,27 @@ export function getWebhookPanelConfig() {
   return getLegacyWebhookPanelConfig();
 }
 
+function resolveShopKeyFromBody(body: Record<string, unknown>): InvoiceShopKey {
+  const raw = String(body.shopKey ?? body.shop ?? '').trim().toLowerCase();
+  if (raw) {
+    return resolveInvoiceShopKey(raw);
+  }
+  return 'meit';
+}
+
 export async function registerWebhookWithPancake(
   body: Record<string, unknown>
 ) {
-  return registerPancakeWebhook(body);
+  const shopKey = resolveShopKeyFromBody(body);
+  return registerPancakeWebhook({ ...body, shopKey });
+}
+
+export function resolveWebhookShopKeyFromRequest(
+  req: Request
+): InvoiceShopKey {
+  return resolveWebhookShopKeyFromQuery(
+    req.query as Record<string, unknown>
+  );
 }
 
 export function buildQueryFromRequest(req: Request): URLSearchParams {
@@ -60,9 +82,10 @@ export function buildQueryFromRequest(req: Request): URLSearchParams {
 
 export async function proxyPancakeOpenApiGet(
   pathname: string,
-  query: URLSearchParams
+  query: URLSearchParams,
+  shopKey: InvoiceShopKey
 ): Promise<unknown> {
-  return fetchPancakeOpenApi(pathname, query);
+  return fetchPancakeOpenApi(pathname, query, shopKey);
 }
 
 export async function listWebhookEventsForResponse(
@@ -168,12 +191,17 @@ function enrichAnalyticsWithCatalogStock(
 }
 
 export async function getVariantSalesAnalytics(query: Record<string, unknown>) {
+  const shopKey = resolveWebhookShopKeyFromQuery(query);
   const analytics = await computeVariantSalesAnalytics({
     days: query.days,
     eventLimit: query.eventLimit,
   });
   try {
-    const catalog = await fetchPancakeOpenApi('/products/variations');
+    const catalog = await fetchPancakeOpenApi(
+      '/products/variations',
+      undefined,
+      shopKey
+    );
     return stripVariantSalesInternalIds(
       enrichAnalyticsWithCatalogStock(analytics, catalog)
     );

@@ -1,16 +1,18 @@
 import type { InvoiceRow } from '../../../common/types/invoice';
 import type { WdioBrowser, WdioElement } from './types';
-import { INVOICE_URL } from './constants';
+import { getInvoiceUrl } from './constants';
 import { SEL } from './xpathInvoiceUi';
 import {
   loadFilledInvoiceKeys,
   persistFilledInvoiceKey,
 } from './filledInvoicesStore';
+import { getActiveInvoiceShopKey } from '../invoiceShops';
+import { normalizeNameKey } from './invoiceRowMatch';
 import {
-  findByBuyerName,
-  findByPhone,
-  normalizeNameKey,
-} from './invoiceRowMatch';
+  BUYER_FACEBOOK_NO_INVOICE,
+  BUYER_ZALO_NO_INVOICE,
+  resolveInvoiceFillData,
+} from './invoiceSourceFill';
 import { fillInvoiceForm } from './invoiceModalFill';
 
 function isClickInterceptedError(err: unknown): boolean {
@@ -98,9 +100,11 @@ export async function processInvoicesByBuyerName(
     );
   }
 
+  const meitSourceRules = getActiveInvoiceShopKey() === 'meit';
+
   /* eslint-disable no-constant-condition */
   while (true) {
-    await browser.url(INVOICE_URL);
+    await browser.url(getInvoiceUrl());
     await browser.pause(3000);
 
     let processedOneOnPage = false;
@@ -127,21 +131,26 @@ export async function processInvoicesByBuyerName(
           continue;
         }
 
-        const phoneMatch = rowText.match(/\d{9,11}/);
-        let data = null;
-        if (phoneMatch) {
-          data = findByPhone(invoiceRows, phoneMatch[0]);
-        }
-        if (!data) {
-          data = findByBuyerName(invoiceRows, rowText);
-        }
+        const data = resolveInvoiceFillData(rowText, invoiceRows, {
+          meitSourceRules,
+        });
         if (!data) {
           console.warn(
-            'No JSON row matched by phone/buyerName for table row, skipping:',
+            'No fill data for table row (no customer match / not MeiT Zalo placeholder), skipping:',
             rowText
           );
           processed.add(key);
           continue;
+        }
+        if (
+          meitSourceRules &&
+          (data.buyerName === BUYER_FACEBOOK_NO_INVOICE ||
+            data.buyerName === BUYER_ZALO_NO_INVOICE)
+        ) {
+          console.log(
+            `[fill] MeiT placeholder buyer (${data.buyerName}) for row:`,
+            rowText.slice(0, 120)
+          );
         }
 
         await clickInvoiceRowSafely(browser, row);
