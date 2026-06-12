@@ -15,6 +15,8 @@ export const SEL = {
    */
   saveDraft:
     '//div[contains(@class, "ant-modal-footer")]//button[normalize-space(.)="Lưu"]',
+  saveAndPublish:
+    '//div[contains(@class, "ant-modal-footer")]//button[normalize-space(.)="Lưu và phát hành"]',
 } as const;
 
 const XPATH_TEXTISH_CONTROL =

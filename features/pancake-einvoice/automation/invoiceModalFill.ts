@@ -327,11 +327,14 @@ export async function fillInvoiceForm(browser: WdioBrowser, data: InvoiceRow) {
     heuristicIdFallback: true,
   });
 
-  const btn = await browser.$(SEL.saveDraft);
+  const publishMode = process.env.PANCAKE_EINVOICE_SAVE_MODE === 'publish';
+  const sel = publishMode ? SEL.saveAndPublish : SEL.saveDraft;
+  const label = publishMode ? 'Lưu và phát hành' : 'Lưu';
+  const btn = await browser.$(sel);
   if (await btn.isExisting()) {
     await btn.waitForDisplayed({ timeout: 10000 });
     await btn.click();
   } else {
-    console.warn('[skip] "Lưu" (draft only) button not found — not using "Lưu và phát hành"');
+    console.warn(`[skip] "${label}" button not found`);
   }
 }

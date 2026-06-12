@@ -29,7 +29,8 @@ const serverRoot = path.join(__dirname, '..', '..');
  */
 function envForWdioChild(
   shopKey: InvoiceShopKey,
-  meitVariant?: MeiTAutomationVariant
+  meitVariant?: MeiTAutomationVariant,
+  saveMode?: string
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -40,6 +41,7 @@ function envForWdioChild(
   } else {
     delete env.PANCAKE_ACTIVE_MEIT_VARIANT;
   }
+  env.PANCAKE_EINVOICE_SAVE_MODE = saveMode === 'publish' ? 'publish' : 'draft';
   delete env.WDIO_LOAD_TS_NODE;
   const nodeOptions = env.NODE_OPTIONS;
   if (typeof nodeOptions === 'string' && nodeOptions.length > 0) {
@@ -74,7 +76,8 @@ function bundleWdioStepsSync(): void {
 function runWdioE2e(
   extraWdioArgs: string[] = [],
   shopKey: InvoiceShopKey = 'meit',
-  meitVariant: MeiTAutomationVariant = 'mode'
+  meitVariant: MeiTAutomationVariant = 'mode',
+  saveMode?: string
 ): Promise<void> {
   bundleWdioStepsSync();
 
@@ -82,7 +85,7 @@ function runWdioE2e(
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [launcher, ...extraWdioArgs], {
       cwd: serverRoot,
-      env: envForWdioChild(shopKey, shopKey === 'meit' ? meitVariant : undefined),
+      env: envForWdioChild(shopKey, shopKey === 'meit' ? meitVariant : undefined, saveMode),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     const chunks: Buffer[] = [];
@@ -114,14 +117,15 @@ function runWdioE2e(
 export async function triggerE2eTestRun(
   extraWdioArgs: string[] = [],
   shopKey: InvoiceShopKey = 'meit',
-  meitVariant: MeiTAutomationVariant = 'mode'
+  meitVariant: MeiTAutomationVariant = 'mode',
+  saveMode?: string
 ): Promise<void> {
   if (e2eRunning) {
     throw new Error('E2E test already running');
   }
   e2eRunning = true;
   try {
-    await runWdioE2e(extraWdioArgs, shopKey, meitVariant);
+    await runWdioE2e(extraWdioArgs, shopKey, meitVariant, saveMode);
   } finally {
     e2eRunning = false;
   }

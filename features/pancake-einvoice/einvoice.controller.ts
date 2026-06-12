@@ -162,6 +162,8 @@ type RunE2eBody = {
   shop?: string;
   /** MeiT tab only: `mode` (default) or `daily`. */
   meitVariant?: string;
+  /** Save mode after filling e-invoice: `draft` (Lưu, default) or `publish` (Lưu và phát hành). */
+  saveMode?: string;
 };
 
 export async function postRunE2eTests(req: Request, res: Response): Promise<void> {
@@ -182,7 +184,7 @@ export async function postRunE2eTests(req: Request, res: Response): Promise<void
       }
     }
     const meitVariant = resolveMeiTVariantForE2e(shopKey, body.meitVariant);
-    await triggerE2eTestRun(extra, shopKey, meitVariant);
+    await triggerE2eTestRun(extra, shopKey, meitVariant, body.saveMode);
     res.json({ status: 'completed', shopKey });
   } catch (err) {
     if (err instanceof Error && err.message === 'E2E test already running') {
