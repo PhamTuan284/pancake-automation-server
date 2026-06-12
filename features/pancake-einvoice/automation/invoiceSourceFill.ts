@@ -2,8 +2,8 @@ import type { InvoiceRow } from '../../../common/types/invoice';
 import { findByBuyerName, findByPhone } from './invoiceRowMatch';
 
 export const BUYER_FACEBOOK_NO_INVOICE =
-  'Người mua Facebook không lấy hóa đơn';
-export const BUYER_ZALO_NO_INVOICE = 'Người mua Zalo không lấy hóa đơn';
+  'Người mua Facebook không cung cấp thông tin';
+export const BUYER_ZALO_NO_INVOICE = 'Người mua Zalo không cung cấp thông tin';
 
 function localeLower(s: string): string {
   try {
