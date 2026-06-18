@@ -136,7 +136,7 @@ export async function processInvoicesByBuyerName(
         });
         if (!data) {
           console.warn(
-            'No fill data for table row (no customer match / not MeiT Zalo placeholder), skipping:',
+            'No fill data for table row (no customer match / unrecognized nguồn đơn), skipping:',
             rowText
           );
           processed.add(key);

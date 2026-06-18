@@ -1,6 +1,6 @@
 import https from 'https';
 import { getVariantSalesAnalytics } from '../pancake-webhook/webhook.service';
-import { formatVariantSalesZaloText } from '../pancake-webhook/lib/formatVariantSalesZaloText';
+import { formatVariantSalesTelegramHtml } from './formatVariantSalesTelegramHtml';
 
 export type TelegramBotConfig = {
   botConfigured: boolean;
@@ -32,6 +32,10 @@ function getEnvConfig() {
     shopKey: process.env.TELEGRAM_REPORT_SHOP?.trim() || 'meit',
     windowDays: Math.max(1, parseInt(process.env.TELEGRAM_REPORT_DAYS ?? '7', 10) || 7),
     topLimit: Math.max(1, parseInt(process.env.TELEGRAM_REPORT_LIMIT ?? '15', 10) || 15),
+    excludeVariants: (process.env.TELEGRAM_EXCLUDE_VARIANTS ?? '')
+      .split(',')
+      .map((s) => s.trim().toUpperCase())
+      .filter(Boolean),
   };
 }
 
@@ -95,11 +99,14 @@ function httpsPost(
 async function sendTelegramMessage(
   botToken: string,
   chatId: string,
-  text: string
+  text: string,
+  parseMode?: 'HTML'
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
-    const body = JSON.stringify({ chat_id: chatId, text });
+    const payload: Record<string, unknown> = { chat_id: chatId, text };
+    if (parseMode) payload.parse_mode = parseMode;
+    const body = JSON.stringify(payload);
     const res = await httpsPost(url, body);
     if (!res.ok) {
       const parsed = JSON.parse(res.body) as { description?: string };
@@ -111,18 +118,30 @@ async function sendTelegramMessage(
   }
 }
 
-async function buildReportText(
+async function buildReportHtml(
   shopKey: string,
   windowDays: number,
-  limit: number
+  limit: number,
+  excludeVariants: string[]
 ): Promise<string> {
   const analytics = await getVariantSalesAnalytics({
     shop: shopKey,
     days: windowDays,
     eventLimit: 1000,
   });
-  const { text } = formatVariantSalesZaloText(analytics, { limit });
-  return text;
+
+  const excluded = new Set(excludeVariants);
+  const filtered = excluded.size > 0
+    ? {
+        ...analytics,
+        variants: analytics.variants.filter(
+          (v) => !excluded.has((v.variantCode ?? '').toUpperCase())
+        ),
+      }
+    : analytics;
+
+  const { html } = formatVariantSalesTelegramHtml(filtered, { limit });
+  return html;
 }
 
 export async function dispatchTelegramSend(
@@ -138,14 +157,16 @@ export async function dispatchTelegramSend(
   }
 
   let text: string;
+  let parseMode: 'HTML' | undefined;
+
   if (kind === 'test') {
-    const now = new Date().toLocaleString('vi-VN', {
-      timeZone: 'Asia/Ho_Chi_Minh',
-    });
-    text = `✅ Kết nối thành công!\nServer MeiT Tools đang hoạt động.\nThời điểm: ${now}`;
+    const now = new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+    text = `✅ <b>Kết nối thành công!</b>\nServer MeiT Tools đang hoạt động.\nThời điểm: ${now}`;
+    parseMode = 'HTML';
   } else {
     try {
-      text = await buildReportText(env.shopKey, env.windowDays, env.topLimit);
+      text = await buildReportHtml(env.shopKey, env.windowDays, env.topLimit, env.excludeVariants);
+      parseMode = 'HTML';
     } catch (err) {
       const error = err instanceof Error ? err.message : 'Không thể tạo báo cáo.';
       addLog({ sentAt: new Date().toISOString(), kind, success: false, error, chatId: env.chatId, preview: '' });
@@ -153,7 +174,7 @@ export async function dispatchTelegramSend(
     }
   }
 
-  const result = await sendTelegramMessage(env.botToken, env.chatId, text);
+  const result = await sendTelegramMessage(env.botToken, env.chatId, text, parseMode);
   addLog({
     sentAt: new Date().toISOString(),
     kind,

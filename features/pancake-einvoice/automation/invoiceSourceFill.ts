@@ -13,12 +13,20 @@ function localeLower(s: string): string {
   }
 }
 
-/** Row `getText()` includes Nguồn đơn such as MeiT Mode or CTV. */
+/**
+ * Nguồn đơn = "MeiT Việt Nam", "CTV / MEIT GRACE", or "Facebook".
+ * Row `getText()` contains the full table row text including nguồn đơn.
+ */
 export function rowHasFacebookOrderSource(rowText: string): boolean {
   const t = localeLower(rowText);
-  return t.includes('meit mode') || /\bctv\b/.test(t);
+  return (
+    t.includes('meit việt nam') ||
+    t.includes('meit grace') ||
+    t.includes('facebook')
+  );
 }
 
+/** Nguồn đơn includes "Zalo" (any casing). */
 export function rowHasZaloOrderSource(rowText: string): boolean {
   return localeLower(rowText).includes('zalo');
 }
@@ -48,25 +56,30 @@ function matchCustomerRow(
 }
 
 /**
- * MeiT tab: fill rules from Nguồn đơn + customer list.
- * Other shops: match list only (legacy).
+ * MeiT tab fill priority:
+ * 1. Customer list match (by phone or buyer name) → use stored data.
+ * 2. No match + Facebook nguồn đơn → placeholder "Người mua Facebook…".
+ * 3. No match + Zalo nguồn đơn → placeholder "Người mua Zalo…".
+ * 4. No match + unknown source → null (skip row).
+ *
+ * Other shops: customer list match only.
  */
 export function resolveInvoiceFillData(
   rowText: string,
   invoiceRows: InvoiceRow[],
   options: { meitSourceRules: boolean }
 ): InvoiceRow | null {
-  if (options.meitSourceRules && rowHasFacebookOrderSource(rowText)) {
-    return emptyInvoiceRow(BUYER_FACEBOOK_NO_INVOICE);
-  }
-
   const matched = matchCustomerRow(invoiceRows, rowText);
-  if (options.meitSourceRules && rowHasZaloOrderSource(rowText)) {
-    if (matched) {
-      return matched;
+  if (matched) return matched;
+
+  if (options.meitSourceRules) {
+    if (rowHasFacebookOrderSource(rowText)) {
+      return emptyInvoiceRow(BUYER_FACEBOOK_NO_INVOICE);
     }
-    return emptyInvoiceRow(BUYER_ZALO_NO_INVOICE);
+    if (rowHasZaloOrderSource(rowText)) {
+      return emptyInvoiceRow(BUYER_ZALO_NO_INVOICE);
+    }
   }
 
-  return matched;
+  return null;
 }
