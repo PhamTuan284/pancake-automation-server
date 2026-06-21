@@ -1,6 +1,8 @@
 import type { Request, Response } from 'express';
 import {
+  isAutomationRunning,
   resolveMeiTVariantForE2e,
+  resetAutomationFlag,
   triggerE2eTestRun,
 } from './automationRunner.service';
 import { resolveInvoiceShopKey } from './invoiceShops';
@@ -200,6 +202,13 @@ export async function postRunE2eTests(req: Request, res: Response): Promise<void
       err instanceof Error ? err.message : 'E2E failed, see server logs.';
     res.status(500).json({ error: detail });
   }
+}
+
+export function postResetAutomationFlag(_req: Request, res: Response): void {
+  const wasRunning = isAutomationRunning();
+  resetAutomationFlag();
+  console.warn('[automation] Flag force-reset by API call (wasRunning=%s)', wasRunning);
+  res.json({ ok: true, wasRunning });
 }
 
 /** Legacy routes without :shopKey default to meit. */

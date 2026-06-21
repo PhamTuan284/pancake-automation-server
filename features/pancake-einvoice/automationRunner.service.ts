@@ -11,10 +11,27 @@ export const WDIO_SPEC_EINVOICE_AUTOMATION =
   './wdio/features/pancake-einvoice-automation.feature';
 
 let e2eRunning = false;
+let e2eChild: ReturnType<typeof spawn> | null = null;
 
 /** True while a WDIO child process is running (any spec). */
 export function isAutomationRunning(): boolean {
   return e2eRunning;
+}
+
+/**
+ * Force-clear the running flag and kill the child process if still alive.
+ * Use only when the flag is stuck (e.g. grandchild kept a stdio pipe open).
+ */
+export function resetAutomationFlag(): void {
+  if (e2eChild) {
+    try {
+      e2eChild.kill();
+    } catch {
+      // already gone
+    }
+    e2eChild = null;
+  }
+  e2eRunning = false;
 }
 
 const serverRoot = path.join(__dirname, '..', '..');
@@ -88,6 +105,7 @@ function runWdioE2e(
       env: envForWdioChild(shopKey, shopKey === 'meit' ? meitVariant : undefined, saveMode),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    e2eChild = child;
     const chunks: Buffer[] = [];
     const push = (d: Buffer) => {
       chunks.push(d);
@@ -95,16 +113,23 @@ function runWdioE2e(
     };
     child.stdout?.on('data', push);
     child.stderr?.on('data', push);
-    child.on('error', reject);
-    child.on('close', (code) => {
-      if (code === 0) {
+    child.on('error', (err) => {
+      e2eChild = null;
+      reject(err);
+    });
+    // Use 'exit' (not 'close') so the promise resolves as soon as the direct child
+    // exits, without waiting for grandchild processes (browser drivers, WDIO workers)
+    // that may inherit stdio pipes and keep 'close' from ever firing.
+    child.on('exit', (code) => {
+      e2eChild = null;
+      if (code === 0 || code === null) {
         resolve();
         return;
       }
       const tail = Buffer.concat(chunks).toString('utf8').slice(-6000);
       reject(
         new Error(
-          `E2E runner (scripts/runWdioE2e.cjs) exited with code ${code ?? 'unknown'}\n${tail}`
+          `E2E runner (scripts/runWdioE2e.cjs) exited with code ${code}\n${tail}`
         )
       );
     });

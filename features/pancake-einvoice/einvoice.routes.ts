@@ -51,6 +51,10 @@ shopRoutes.post('/run-e2e-tests', (req, res) => {
 
 einvoiceRouter.use('/pancake-einvoice/:shopKey', shopRoutes);
 
+einvoiceRouter.post('/pancake-einvoice/reset-automation-flag', (req, res) => {
+  einvoiceController.postResetAutomationFlag(req, res);
+});
+
 /** Legacy paths (MeiT shop) for older UI or scripts */
 einvoiceRouter.get('/invoice-data', (req, res) => {
   void einvoiceController.getInvoiceDataLegacy(req, res);
