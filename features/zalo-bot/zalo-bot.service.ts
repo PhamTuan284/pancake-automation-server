@@ -1,6 +1,6 @@
 import https from 'https';
 import { getVariantSalesAnalytics } from '../pancake-webhook/webhook.service';
-import { formatVariantSalesZaloText } from '../pancake-webhook/lib/formatVariantSalesZaloText';
+import { formatVariantSalesZaloText } from './formatVariantSalesZaloText';
 
 export type ZaloBotConfig = {
   botConfigured: boolean;
