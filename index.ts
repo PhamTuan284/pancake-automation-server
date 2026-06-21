@@ -2,6 +2,7 @@ import './features/pancake-einvoice/loadServerEnv';
 import http from 'http';
 import { createApp } from './createApp';
 import { startTelegramDailyScheduler } from './features/telegram-bot/telegram-bot.service';
+import { startZaloDailyScheduler } from './features/zalo-bot/zalo-bot.service';
 
 const app = createApp();
 
@@ -17,6 +18,7 @@ server.on('listening', () => {
   const bound = typeof addr === 'object' && addr ? addr.port : port;
   console.log(`Pancake automation API: http://localhost:${bound}`);
   startTelegramDailyScheduler();
+  startZaloDailyScheduler();
   if (bound !== preferredPort) {
     console.warn(
       `API bound to ${bound} (preferred ${preferredPort} was busy). Point the UI proxy at this port, e.g. PowerShell:\n` +
