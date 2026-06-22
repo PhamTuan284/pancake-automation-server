@@ -1,6 +1,8 @@
 import https from 'https';
 import { getVariantSalesAnalytics } from '../pancake-webhook/webhook.service';
 import { formatVariantSalesTelegramHtml } from './formatVariantSalesTelegramHtml';
+import { getAdminSettings } from '../../common/models/adminSettingsModel';
+import { useMongo } from '../../common/mongo';
 
 export type TelegramBotConfig = {
   botConfigured: boolean;
@@ -207,13 +209,21 @@ export function startTelegramDailyScheduler(): void {
 
     if (vnHour === env.reportHour && lastScheduledDate !== vnDate) {
       lastScheduledDate = vnDate;
-      void dispatchTelegramSend('scheduled').then((result) => {
+      void (async () => {
+        if (useMongo()) {
+          const settings = await getAdminSettings().catch(() => null);
+          if (settings && !settings.botEnabled.telegram) {
+            console.log('[telegram-bot] Bot đang bị tắt trong cài đặt admin, bỏ qua lịch gửi.');
+            return;
+          }
+        }
+        const result = await dispatchTelegramSend('scheduled');
         if (result.ok) {
           console.log(`[telegram-bot] Đã gửi báo cáo tự động lúc ${vnDate} ${vnHour}h (VN).`);
         } else {
           console.error(`[telegram-bot] Lỗi gửi báo cáo tự động: ${result.error ?? ''}`);
         }
-      });
+      })();
     }
   }, 60_000);
 

@@ -3,6 +3,7 @@ import http from 'http';
 import { createApp } from './createApp';
 import { startTelegramDailyScheduler } from './features/telegram-bot/telegram-bot.service';
 import { startZaloDailyScheduler } from './features/zalo-bot/zalo-bot.service';
+import { seedFirstAdmin } from './common/seedAdmin';
 
 const app = createApp();
 
@@ -19,6 +20,7 @@ server.on('listening', () => {
   console.log(`Pancake automation API: http://localhost:${bound}`);
   startTelegramDailyScheduler();
   startZaloDailyScheduler();
+  void seedFirstAdmin();
   if (bound !== preferredPort) {
     console.warn(
       `API bound to ${bound} (preferred ${preferredPort} was busy). Point the UI proxy at this port, e.g. PowerShell:\n` +

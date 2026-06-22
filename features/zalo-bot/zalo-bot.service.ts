@@ -1,6 +1,8 @@
 import https from 'https';
 import { getVariantSalesAnalytics } from '../pancake-webhook/webhook.service';
 import { formatVariantSalesZaloText } from './formatVariantSalesZaloText';
+import { getAdminSettings } from '../../common/models/adminSettingsModel';
+import { useMongo } from '../../common/mongo';
 
 export type ZaloBotConfig = {
   botConfigured: boolean;
@@ -262,13 +264,21 @@ export function startZaloDailyScheduler(): void {
 
     if (vnHour === env.reportHour && lastScheduledDate !== vnDate) {
       lastScheduledDate = vnDate;
-      void dispatchZaloSend('scheduled').then((result) => {
+      void (async () => {
+        if (useMongo()) {
+          const settings = await getAdminSettings().catch(() => null);
+          if (settings && !settings.botEnabled.zalo) {
+            console.log('[zalo-bot] Bot đang bị tắt trong cài đặt admin, bỏ qua lịch gửi.');
+            return;
+          }
+        }
+        const result = await dispatchZaloSend('scheduled');
         if (result.ok) {
           console.log(`[zalo-bot] Đã gửi báo cáo tự động lúc ${vnDate} ${vnHour}h (VN).`);
         } else {
           console.error(`[zalo-bot] Lỗi gửi báo cáo tự động: ${result.error ?? ''}`);
         }
-      });
+      })();
     }
   }, 60_000);
 
