@@ -55,11 +55,7 @@ export async function getPancakeProductsVariations(
 ): Promise<void> {
   try {
     const shopKey = webhookService.resolveWebhookShopKeyFromRequest(req);
-    const data = await webhookService.proxyPancakeOpenApiGet(
-      '/products/variations',
-      webhookService.buildQueryFromRequest(req),
-      shopKey
-    );
+    const data = await webhookService.getAllProductVariations(shopKey);
     res.json({ ok: true, data });
   } catch (err) {
     const message =

@@ -254,26 +254,37 @@ function extractStockFromPayload(
 type AnalyticsEvent = {
   receivedAt: string;
   kind: string;
+  shopKey?: string;
   payload: unknown;
 };
 
 async function loadAnalyticsEvents(
   since: Date,
-  limit: number
+  limit: number,
+  shopKey?: string
 ): Promise<AnalyticsEvent[]> {
   if (useMongo()) {
     try {
       await connectMongo();
-      const docs = await PancakeWebhookEvent.find({
+      const filter: Record<string, unknown> = {
         receivedAt: { $gte: since },
         kind: { $in: ['orders', 'variations_warehouses'] },
-      })
+      };
+      if (shopKey) {
+        // Events saved before shopKey was added have shopKey='' or missing;
+        // treat those legacy events as 'meit' (the only shop at that time).
+        filter.$or = shopKey === 'meit'
+          ? [{ shopKey }, { shopKey: '' }, { shopKey: { $exists: false } }]
+          : [{ shopKey }];
+      }
+      const docs = await PancakeWebhookEvent.find(filter)
         .sort({ receivedAt: -1 })
         .limit(limit)
         .lean();
       return docs.map((doc) => ({
         receivedAt: new Date(doc.receivedAt || new Date()).toISOString(),
         kind: String(doc.kind || 'unknown'),
+        shopKey: String(doc.shopKey || 'meit'),
         payload: doc.payload,
       }));
     } catch (err) {
@@ -288,14 +299,15 @@ async function loadAnalyticsEvents(
   return memory
     .filter((ev) => {
       const at = new Date(ev.at);
-      return (
-        at >= since &&
-        (ev.kind === 'orders' || ev.kind === 'variations_warehouses')
-      );
+      if (!(at >= since && (ev.kind === 'orders' || ev.kind === 'variations_warehouses'))) return false;
+      if (!shopKey) return true;
+      const evShop = ev.shopKey || 'meit';
+      return evShop === shopKey;
     })
     .map((ev) => ({
       receivedAt: ev.at,
       kind: ev.kind,
+      shopKey: ev.shopKey || 'meit',
       payload: ev.payload,
     }));
 }
@@ -307,13 +319,14 @@ function mergeVariantMeta(acc: VariantAccumulator, line: LineItem): void {
 export async function computeVariantSalesAnalytics(options?: {
   days?: unknown;
   eventLimit?: unknown;
+  shopKey?: string;
 }): Promise<VariantSalesAnalyticsResult> {
   const windowDays = normalizeDays(options?.days);
   const eventLimit = normalizeEventLimit(options?.eventLimit);
   const to = new Date();
   const from = new Date(to.getTime() - windowDays * 24 * 60 * 60 * 1000);
 
-  const events = await loadAnalyticsEvents(from, eventLimit);
+  const events = await loadAnalyticsEvents(from, eventLimit, options?.shopKey);
   const byVariant = new Map<string, VariantAccumulator>();
   const stockByVariant = new Map<string, StockSnapshot>();
   const seenOrderIds = new Set<string>();

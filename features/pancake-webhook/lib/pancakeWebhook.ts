@@ -53,6 +53,7 @@ export type ReceivedWebhookEvent = {
   id?: string;
   at: string;
   kind: string;
+  shopKey?: string;
   contentType?: string;
   payload: unknown;
   headers: Record<string, string | string[] | undefined>;
@@ -263,6 +264,83 @@ export async function fetchPancakeOpenApi(
   return data;
 }
 
+function extractRowsFromPage(data: unknown): Record<string, unknown>[] {
+  if (!data) return [];
+  if (Array.isArray(data)) {
+    return (data as unknown[]).filter(
+      (x): x is Record<string, unknown> =>
+        x !== null && typeof x === 'object' && !Array.isArray(x)
+    );
+  }
+  if (typeof data !== 'object') return [];
+  const obj = data as Record<string, unknown>;
+  for (const key of ['data', 'variations', 'products', 'items', 'results', 'list']) {
+    const v = obj[key];
+    if (Array.isArray(v)) return extractRowsFromPage(v);
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      const nested = extractRowsFromPage(v);
+      if (nested.length > 0) return nested;
+    }
+  }
+  return [];
+}
+
+function detectLastPageNumber(data: unknown, currentPage: number, pageSize: number, rowCount: number): number {
+  if (rowCount < pageSize) return currentPage;
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return currentPage;
+
+  function tryMeta(o: Record<string, unknown>): number | null {
+    for (const metaKey of ['meta', 'pagination']) {
+      const m = o[metaKey];
+      if (!m || typeof m !== 'object' || Array.isArray(m)) continue;
+      const meta = m as Record<string, unknown>;
+      const lp = Number(meta.last_page ?? meta.num_pages ?? meta.total_pages);
+      if (Number.isInteger(lp) && lp > 0) return lp;
+      const inner = meta.pagination;
+      if (inner && typeof inner === 'object' && !Array.isArray(inner)) {
+        const ip = inner as Record<string, unknown>;
+        const ilp = Number(ip.last_page ?? ip.num_pages ?? ip.total_pages);
+        if (Number.isInteger(ilp) && ilp > 0) return ilp;
+      }
+    }
+    return null;
+  }
+
+  const obj = data as Record<string, unknown>;
+  const fromTop = tryMeta(obj);
+  if (fromTop !== null) return fromTop;
+  const nested = obj.data;
+  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+    const fromData = tryMeta(nested as Record<string, unknown>);
+    if (fromData !== null) return fromData;
+  }
+  return Number.MAX_SAFE_INTEGER;
+}
+
+export async function fetchPancakeOpenApiPaginated(
+  pathname: string,
+  query: URLSearchParams | undefined,
+  shopKey: InvoiceShopKey = 'meit',
+  options: { pageSize?: number; maxPages?: number } = {}
+): Promise<Record<string, unknown>[]> {
+  const { pageSize = 50, maxPages = 40 } = options;
+  const allItems: Record<string, unknown>[] = [];
+
+  for (let page = 1; page <= maxPages; page++) {
+    const q = new URLSearchParams(query);
+    q.set('page', String(page));
+    q.set('page_size', String(pageSize));
+    const data = await fetchPancakeOpenApi(pathname, q, shopKey);
+    const rows = extractRowsFromPage(data);
+    allItems.push(...rows);
+    console.log(`[pancake] paginated fetch ${pathname} page=${page} got=${rows.length} total=${allItems.length}`);
+    const lastPage = detectLastPageNumber(data, page, pageSize, rows.length);
+    if (rows.length === 0 || page >= lastPage) break;
+  }
+
+  return allItems;
+}
+
 function detectWebhookKind(payload: unknown): string {
   if (!payload || typeof payload !== 'object') {
     return 'unknown';
@@ -320,9 +398,11 @@ export function verifyWebhookSecret(req: Request): boolean {
 
 export function recordWebhookEvent(req: Request): ReceivedWebhookEvent {
   const payload = req.body as unknown;
+  const rawShop = trimString((req.query as Record<string, unknown>).shop ?? (req.query as Record<string, unknown>).shopKey).toLowerCase();
   const event: ReceivedWebhookEvent = {
     at: new Date().toISOString(),
     kind: detectWebhookKind(payload),
+    shopKey: rawShop || 'meit',
     payload,
     headers: req.headers,
   };
@@ -342,6 +422,7 @@ async function persistWebhookEventToMongo(event: ReceivedWebhookEvent): Promise<
     await PancakeWebhookEvent.create({
       receivedAt: new Date(event.at),
       kind: event.kind,
+      shopKey: event.shopKey || 'meit',
       contentType: event.contentType || String(event.headers['content-type'] || ''),
       headers: event.headers,
       payload: event.payload,

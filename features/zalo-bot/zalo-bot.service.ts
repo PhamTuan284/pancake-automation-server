@@ -208,6 +208,87 @@ async function buildReportText(
   return text;
 }
 
+async function sendZaloPhoto(
+  botToken: string,
+  chatId: string,
+  photoUrl: string,
+  caption: string
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const url = `https://bot-api.zaloplatforms.com/bot${botToken}/sendPhoto`;
+    const body = JSON.stringify({ chat_id: chatId, photo: photoUrl, caption });
+    const res = await httpsPost(url, body);
+    if (!res.ok) {
+      let parsed: { description?: string; message?: string } = {};
+      try { parsed = JSON.parse(res.body) as typeof parsed; } catch { /* ignore */ }
+      return { ok: false, error: parsed.description ?? parsed.message ?? `HTTP ${res.status}` };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export type ZaloProductStockVariant = {
+  label: string;
+  displayId: string;
+  stock: number | null;
+};
+
+export type ZaloProductStockPayload = {
+  productCode: string;
+  productName: string;
+  imageUrl: string | null;
+  price: string;
+  variants: ZaloProductStockVariant[];
+};
+
+function formatProductStockCaption(p: ZaloProductStockPayload): string {
+  const header = p.productName !== '—' ? `📦 ${p.productName}` : `📦 ${p.productCode}`;
+  const priceStr = p.price && p.price !== '—' ? `\n💰 ${p.price}` : '';
+  const divider = '─────────────────────';
+  const totalStock = p.variants.reduce((sum, v) => sum + (v.stock ?? 0), 0);
+  const rows = p.variants
+    .map((v) => {
+      const stockStr = v.stock === null ? '?' : String(v.stock);
+      const label = v.label || v.displayId;
+      return `  ${label}  [${v.displayId}]  Tồn: ${stockStr}`;
+    })
+    .join('\n');
+  return [header + priceStr, divider, rows, divider, `📊 Tổng tồn: ${totalStock} · ${p.variants.length} biến thể`].join('\n');
+}
+
+export async function sendProductStockToZalo(
+  payload: ZaloProductStockPayload
+): Promise<{ ok: boolean; error?: string; text?: string }> {
+  const env = getEnvConfig();
+  if (!env.botToken) return { ok: false, error: 'ZALO_BOT_TOKEN chưa được cấu hình.' };
+  if (!env.chatId) return { ok: false, error: 'ZALO_CHAT_ID chưa được cấu hình.' };
+
+  const caption = formatProductStockCaption(payload);
+
+  let result: { ok: boolean; error?: string };
+  if (payload.imageUrl) {
+    result = await sendZaloPhoto(env.botToken, env.chatId, payload.imageUrl, caption);
+    if (!result.ok) {
+      // Fallback: send as text with image URL appended
+      result = await sendZaloMessage(env.botToken, env.chatId, caption + (payload.imageUrl ? `\n🖼 ${payload.imageUrl}` : ''));
+    }
+  } else {
+    result = await sendZaloMessage(env.botToken, env.chatId, caption);
+  }
+
+  addLog({
+    sentAt: new Date().toISOString(),
+    kind: 'report',
+    success: result.ok,
+    error: result.error,
+    chatId: env.chatId,
+    preview: caption.slice(0, 100),
+  });
+  return { ...result, text: caption };
+}
+
 export async function dispatchZaloSend(
   kind: 'test' | 'report' | 'scheduled'
 ): Promise<{ ok: boolean; error?: string; text?: string }> {

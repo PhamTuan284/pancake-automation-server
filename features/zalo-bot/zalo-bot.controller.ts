@@ -1,5 +1,13 @@
 import type { Request, Response } from 'express';
-import { getZaloBotConfig, getZaloSendLogs, dispatchZaloSend, fetchZaloUpdates, setZaloWebhook } from './zalo-bot.service';
+import {
+  getZaloBotConfig,
+  getZaloSendLogs,
+  dispatchZaloSend,
+  fetchZaloUpdates,
+  setZaloWebhook,
+  sendProductStockToZalo,
+  type ZaloProductStockPayload,
+} from './zalo-bot.service';
 
 export function getConfig(_req: Request, res: Response): void {
   res.json({ ok: true, ...getZaloBotConfig() });
@@ -43,6 +51,40 @@ export async function postGetUpdates(_req: Request, res: Response): Promise<void
 
 export async function postSendReport(_req: Request, res: Response): Promise<void> {
   const result = await dispatchZaloSend('report');
+  if (!result.ok) {
+    res.status(400).json({ ok: false, error: result.error });
+    return;
+  }
+  res.json({ ok: true, text: result.text });
+}
+
+export async function postSendProductStock(req: Request, res: Response): Promise<void> {
+  const body = (req.body ?? {}) as Partial<ZaloProductStockPayload>;
+  const productCode = String(body.productCode ?? '').trim();
+  const productName = String(body.productName ?? '').trim();
+  const variants = Array.isArray(body.variants) ? body.variants : [];
+  if (!productCode && !productName) {
+    res.status(400).json({ ok: false, error: 'Thiếu productCode hoặc productName.' });
+    return;
+  }
+  if (variants.length === 0) {
+    res.status(400).json({ ok: false, error: 'Cần ít nhất một biến thể.' });
+    return;
+  }
+  const payload: ZaloProductStockPayload = {
+    productCode,
+    productName: productName || productCode,
+    imageUrl: typeof body.imageUrl === 'string' ? body.imageUrl.trim() || null : null,
+    price: typeof body.price === 'string' ? body.price : '—',
+    variants: variants.map((v) => ({
+      label: String((v as Record<string, unknown>).label ?? '').trim(),
+      displayId: String((v as Record<string, unknown>).displayId ?? '').trim(),
+      stock: typeof (v as Record<string, unknown>).stock === 'number'
+        ? ((v as Record<string, unknown>).stock as number)
+        : null,
+    })),
+  };
+  const result = await sendProductStockToZalo(payload);
   if (!result.ok) {
     res.status(400).json({ ok: false, error: result.error });
     return;

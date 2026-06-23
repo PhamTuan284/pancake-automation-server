@@ -6,6 +6,7 @@ import {
 import {
   clearWebhookEvents,
   fetchPancakeOpenApi,
+  fetchPancakeOpenApiPaginated,
   getLegacyWebhookPanelConfig,
   listWebhookEvents,
   recordWebhookEventWithPersistence,
@@ -86,6 +87,12 @@ export async function proxyPancakeOpenApiGet(
   shopKey: InvoiceShopKey
 ): Promise<unknown> {
   return fetchPancakeOpenApi(pathname, query, shopKey);
+}
+
+export async function getAllProductVariations(
+  shopKey: InvoiceShopKey
+): Promise<Record<string, unknown>[]> {
+  return fetchPancakeOpenApiPaginated('/products/variations', undefined, shopKey);
 }
 
 export async function listWebhookEventsForResponse(
@@ -195,6 +202,7 @@ export async function getVariantSalesAnalytics(query: Record<string, unknown>) {
   const analytics = await computeVariantSalesAnalytics({
     days: query.days,
     eventLimit: query.eventLimit,
+    shopKey,
   });
   try {
     const catalog = await fetchPancakeOpenApi(

@@ -4,6 +4,7 @@ const pancakeWebhookEventSchema = new mongoose.Schema(
   {
     receivedAt: { type: Date, default: Date.now, index: true },
     kind: { type: String, default: 'unknown', index: true },
+    shopKey: { type: String, default: '', index: true },
     contentType: { type: String, default: '' },
     headers: { type: mongoose.Schema.Types.Mixed, default: {} },
     payload: { type: mongoose.Schema.Types.Mixed, required: true },
