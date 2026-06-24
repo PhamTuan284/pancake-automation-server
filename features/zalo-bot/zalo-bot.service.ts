@@ -275,6 +275,84 @@ export async function sendZaloPhotoBase64(
   }
 }
 
+async function sendZaloMediaGroup(
+  botToken: string,
+  chatId: string,
+  urls: string[]
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const media = urls.map((url) => ({ type: 'photo', media: url }));
+    const res = await httpsPost(
+      `https://bot-api.zaloplatforms.com/bot${botToken}/sendMediaGroup`,
+      JSON.stringify({ chat_id: chatId, media })
+    );
+    console.log(`[zalo-bot] sendMediaGroup HTTP ${res.status}: ${res.body.slice(0, 300)}`);
+    let parsed: { ok?: boolean; description?: string } = {};
+    try { parsed = JSON.parse(res.body) as typeof parsed; } catch { /* ignore */ }
+    if (!res.ok || parsed.ok === false) {
+      return { ok: false, error: parsed.description ?? `HTTP ${res.status}` };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function sendProductStockMultiToZalo(
+  imagesBase64: string[]
+): Promise<{ ok: boolean; error?: string }> {
+  const { botToken, chatId } = getEnvConfig();
+  if (!botToken) return { ok: false, error: 'ZALO_BOT_TOKEN chưa được cấu hình.' };
+  if (!chatId) return { ok: false, error: 'ZALO_CHAT_ID chưa được cấu hình.' };
+
+  const publicBaseUrl = (
+    process.env.SERVER_PUBLIC_URL?.trim() ||
+    process.env.PANCAKE_PUBLIC_WEBHOOK_BASE?.trim()
+  )?.replace(/\/$/, '');
+  if (!publicBaseUrl) {
+    return { ok: false, error: 'SERVER_PUBLIC_URL hoặc PANCAKE_PUBLIC_WEBHOOK_BASE chưa được cấu hình.' };
+  }
+
+  try {
+    if (!fs.existsSync(TEMP_IMG_DIR)) fs.mkdirSync(TEMP_IMG_DIR, { recursive: true });
+
+    const urls: string[] = [];
+    const filepaths: string[] = [];
+    for (const b64 of imagesBase64) {
+      const filename = `stock-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.png`;
+      const filepath = path.join(TEMP_IMG_DIR, filename);
+      fs.writeFileSync(filepath, Buffer.from(b64, 'base64'));
+      filepaths.push(filepath);
+      urls.push(`${publicBaseUrl}/temp-images/${filename}`);
+    }
+
+    setTimeout(() => {
+      for (const fp of filepaths) { try { fs.unlinkSync(fp); } catch { /* ignore */ } }
+    }, 5 * 60_000);
+
+    // sendMediaGroup supports max 10 per call — batch if needed
+    let lastResult: { ok: boolean; error?: string } = { ok: true };
+    for (let i = 0; i < urls.length; i += 10) {
+      lastResult = await sendZaloMediaGroup(botToken, chatId, urls.slice(i, i + 10));
+      if (!lastResult.ok) break;
+    }
+
+    addLog({
+      sentAt: new Date().toISOString(),
+      kind: 'report',
+      success: lastResult.ok,
+      error: lastResult.error,
+      chatId,
+      preview: `Album ${imagesBase64.length} ảnh`,
+    });
+    return lastResult;
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    addLog({ sentAt: new Date().toISOString(), kind: 'report', success: false, error, chatId, preview: '' });
+    return { ok: false, error };
+  }
+}
+
 export type ZaloProductStockVariant = {
   label: string;
   displayId: string;

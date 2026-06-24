@@ -7,6 +7,7 @@ import {
   setZaloWebhook,
   sendProductStockToZalo,
   sendZaloPhotoBase64,
+  sendProductStockMultiToZalo,
   type ZaloProductStockPayload,
 } from './zalo-bot.service';
 
@@ -108,4 +109,20 @@ export async function postSendProductStock(req: Request, res: Response): Promise
     return;
   }
   res.json({ ok: true, text: result.text });
+}
+
+export async function postSendProductStockMulti(req: Request, res: Response): Promise<void> {
+  const body = (req.body ?? {}) as { images?: unknown };
+  const images = Array.isArray(body.images) ? body.images : [];
+  const valid = images.filter((x): x is string => typeof x === 'string' && x.trim().length > 0);
+  if (valid.length === 0) {
+    res.status(400).json({ ok: false, error: 'Không có ảnh hợp lệ.' });
+    return;
+  }
+  const result = await sendProductStockMultiToZalo(valid);
+  if (!result.ok) {
+    res.status(400).json({ ok: false, error: result.error });
+    return;
+  }
+  res.json({ ok: true });
 }
