@@ -1,8 +1,12 @@
 import https from 'https';
+import path from 'path';
+import fs from 'fs';
 import { getVariantSalesAnalytics } from '../pancake-webhook/webhook.service';
 import { formatVariantSalesZaloText } from './formatVariantSalesZaloText';
 import { getAdminSettings } from '../../common/models/adminSettingsModel';
 import { useMongo } from '../../common/mongo';
+
+const TEMP_IMG_DIR = path.join(process.cwd(), 'public', 'temp-images');
 
 export type ZaloBotConfig = {
   botConfigured: boolean;
@@ -97,6 +101,7 @@ function httpsPost(
     req.end();
   });
 }
+
 
 export type ZaloUpdateChat = {
   id: string;
@@ -226,6 +231,47 @@ async function sendZaloPhoto(
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function sendZaloPhotoBase64(
+  imageBase64: string,
+  caption = ''
+): Promise<{ ok: boolean; error?: string }> {
+  const { botToken, chatId } = getEnvConfig();
+  if (!botToken) return { ok: false, error: 'ZALO_BOT_TOKEN chưa được cấu hình.' };
+  if (!chatId) return { ok: false, error: 'ZALO_CHAT_ID chưa được cấu hình.' };
+
+  const publicBaseUrl = (
+    process.env.SERVER_PUBLIC_URL?.trim() ||
+    process.env.PANCAKE_PUBLIC_WEBHOOK_BASE?.trim()
+  )?.replace(/\/$/, '');
+  if (!publicBaseUrl) {
+    return { ok: false, error: 'SERVER_PUBLIC_URL hoặc PANCAKE_PUBLIC_WEBHOOK_BASE chưa được cấu hình trong .env.' };
+  }
+
+  try {
+    const buffer = Buffer.from(imageBase64, 'base64');
+    if (!fs.existsSync(TEMP_IMG_DIR)) fs.mkdirSync(TEMP_IMG_DIR, { recursive: true });
+
+    const filename = `stock-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.png`;
+    const filepath = path.join(TEMP_IMG_DIR, filename);
+    fs.writeFileSync(filepath, buffer);
+
+    const imageUrl = `${publicBaseUrl}/temp-images/${filename}`;
+    console.log(`[zalo-bot] sendPhoto via URL: ${imageUrl}`);
+
+    // Clean up after 5 minutes
+    setTimeout(() => { try { fs.unlinkSync(filepath); } catch { /* ignore */ } }, 5 * 60_000);
+
+    const result = await sendZaloPhoto(botToken, chatId, imageUrl, caption);
+    console.log(`[zalo-bot] sendPhoto result: ok=${String(result.ok)} error=${result.error ?? ''}`);
+    addLog({ sentAt: new Date().toISOString(), kind: 'report', success: result.ok, error: result.error, chatId, preview: caption.slice(0, 100) });
+    return result;
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    addLog({ sentAt: new Date().toISOString(), kind: 'report', success: false, error, chatId, preview: caption.slice(0, 100) });
+    return { ok: false, error };
   }
 }
 

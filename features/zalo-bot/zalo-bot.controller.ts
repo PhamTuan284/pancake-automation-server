@@ -6,6 +6,7 @@ import {
   fetchZaloUpdates,
   setZaloWebhook,
   sendProductStockToZalo,
+  sendZaloPhotoBase64,
   type ZaloProductStockPayload,
 } from './zalo-bot.service';
 
@@ -59,7 +60,24 @@ export async function postSendReport(_req: Request, res: Response): Promise<void
 }
 
 export async function postSendProductStock(req: Request, res: Response): Promise<void> {
-  const body = (req.body ?? {}) as Partial<ZaloProductStockPayload>;
+  const body = (req.body ?? {}) as Partial<ZaloProductStockPayload & { imageBase64?: string }>;
+
+  // Image-first path: client captured a canvas screenshot
+  const imageBase64 = typeof body.imageBase64 === 'string' ? body.imageBase64.trim() : '';
+  if (imageBase64) {
+    const caption = typeof body.productName === 'string' && body.productName.trim()
+      ? body.productName.trim()
+      : (typeof body.productCode === 'string' ? body.productCode.trim() : '');
+    const result = await sendZaloPhotoBase64(imageBase64, caption);
+    if (!result.ok) {
+      res.status(400).json({ ok: false, error: result.error });
+      return;
+    }
+    res.json({ ok: true });
+    return;
+  }
+
+  // Fallback: text-based report
   const productCode = String(body.productCode ?? '').trim();
   const productName = String(body.productName ?? '').trim();
   const variants = Array.isArray(body.variants) ? body.variants : [];
