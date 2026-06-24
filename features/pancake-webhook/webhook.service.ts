@@ -210,9 +210,21 @@ export async function getVariantSalesAnalytics(query: Record<string, unknown>) {
       undefined,
       shopKey
     );
-    return stripVariantSalesInternalIds(
-      enrichAnalyticsWithCatalogStock(analytics, catalog)
+    const enriched = enrichAnalyticsWithCatalogStock(analytics, catalog);
+
+    // Keep only variants whose variation_id exists in this shop's catalog.
+    // This eliminates events from other shops that share the same event store
+    // (different Pancake shops have completely separate variation_id spaces).
+    const catalogIds = new Set(
+      extractCatalogRows(catalog)
+        .map((r) => String(r.variation_id ?? r.id ?? '').trim())
+        .filter(Boolean)
     );
+    const shopOnly = catalogIds.size > 0
+      ? { ...enriched, variants: enriched.variants.filter((v) => catalogIds.has(v.variationId)) }
+      : enriched;
+
+    return stripVariantSalesInternalIds(shopOnly);
   } catch {
     return stripVariantSalesInternalIds(analytics);
   }
