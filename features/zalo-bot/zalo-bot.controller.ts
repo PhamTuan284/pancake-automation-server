@@ -8,8 +8,10 @@ import {
   sendProductStockToZalo,
   sendZaloPhotoBase64,
   sendProductStockMultiToZalo,
+  sendDailyStockReport,
   type ZaloProductStockPayload,
 } from './zalo-bot.service';
+import { getDailyStockConfig, saveDailyStockConfig } from './dailyStockConfig';
 
 export function getConfig(_req: Request, res: Response): void {
   res.json({ ok: true, ...getZaloBotConfig() });
@@ -125,4 +127,38 @@ export async function postSendProductStockMulti(req: Request, res: Response): Pr
     return;
   }
   res.json({ ok: true });
+}
+
+export async function getDailyStockConfigHandler(_req: Request, res: Response): Promise<void> {
+  const config = await getDailyStockConfig();
+  res.json({ ok: true, ...config });
+}
+
+export async function saveDailyStockConfigHandler(req: Request, res: Response): Promise<void> {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const productCodes = Array.isArray(body.productCodes)
+    ? body.productCodes.filter((x): x is string => typeof x === 'string')
+    : undefined;
+  const shopKey = typeof body.shopKey === 'string' ? body.shopKey.trim() : undefined;
+  const enabled = typeof body.enabled === 'boolean' ? body.enabled : undefined;
+  const sendTime = typeof body.sendTime === 'string' && /^\d{1,2}:\d{2}$/.test(body.sendTime.trim())
+    ? body.sendTime.trim()
+    : undefined;
+
+  const updated = await saveDailyStockConfig({
+    ...(productCodes !== undefined && { productCodes }),
+    ...(shopKey !== undefined && { shopKey }),
+    ...(enabled !== undefined && { enabled }),
+    ...(sendTime !== undefined && { sendTime }),
+  });
+  res.json({ ok: true, ...updated });
+}
+
+export async function postSendDailyStockNow(_req: Request, res: Response): Promise<void> {
+  const result = await sendDailyStockReport('manual');
+  if (!result.ok) {
+    res.status(400).json({ ok: false, error: result.error });
+    return;
+  }
+  res.json({ ok: true, text: result.text });
 }

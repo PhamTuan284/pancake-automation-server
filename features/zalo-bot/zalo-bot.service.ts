@@ -1,10 +1,13 @@
 import https from 'https';
 import path from 'path';
 import fs from 'fs';
-import { getVariantSalesAnalytics } from '../pancake-webhook/webhook.service';
+import { getVariantSalesAnalytics, getAllProductVariations } from '../pancake-webhook/webhook.service';
 import { formatVariantSalesZaloText } from './formatVariantSalesZaloText';
 import { getAdminSettings } from '../../common/models/adminSettingsModel';
 import { useMongo } from '../../common/mongo';
+import { getDailyStockConfig, saveDailyStockConfig } from './dailyStockConfig';
+import type { InvoiceShopKey } from '../pancake-einvoice/invoiceShops';
+import { generateStockImageServer, stitchIntoCompositeServer } from './stockImageServer';
 
 const TEMP_IMG_DIR = path.join(process.cwd(), 'public', 'temp-images');
 
@@ -429,40 +432,235 @@ export async function dispatchZaloSend(
   return { ...result, text };
 }
 
+// ---- Daily stock report (for schedule) ----
+
+type ProductEntry = {
+  name: string;
+  imageUrl: string | null;
+  variants: Array<{ label: string; stock: number | null }>;
+};
+
+function extractImageUrl(r: Record<string, unknown>, prod: Record<string, unknown> | null): string | null {
+  const fromArr = (images: unknown): string | null => {
+    if (!Array.isArray(images) || images.length === 0) return null;
+    const first = images[0];
+    if (typeof first === 'string' && first.trim()) return first.trim();
+    if (first && typeof first === 'object') {
+      const img = first as Record<string, unknown>;
+      const url = img.thumbnail_url ?? img.url ?? img.src;
+      if (typeof url === 'string' && url.trim()) return url.trim();
+    }
+    return null;
+  };
+  return fromArr(r.images)
+    ?? fromArr(prod?.images)
+    ?? (typeof prod?.thumbnail_url === 'string' ? prod.thumbnail_url : null)
+    ?? (typeof r.thumbnail_url === 'string' ? r.thumbnail_url : null)
+    ?? null;
+}
+
+async function fetchProductMap(
+  productCodes: string[],
+  shopKey: string
+): Promise<Map<string, ProductEntry>> {
+  const rows = await getAllProductVariations(shopKey as InvoiceShopKey);
+  const codeSet = new Set(productCodes);
+  const productMap = new Map<string, ProductEntry>();
+
+  for (const row of rows) {
+    const r = row as Record<string, unknown>;
+    const prod = (r.product && typeof r.product === 'object' && !Array.isArray(r.product))
+      ? (r.product as Record<string, unknown>)
+      : null;
+    const code = String(r.product_display_id ?? prod?.display_id ?? '').trim();
+    if (!code || !codeSet.has(code)) continue;
+
+    if (!productMap.has(code)) {
+      const name = String(r.product_name ?? prod?.name ?? r.name ?? '').trim();
+      productMap.set(code, { name, imageUrl: extractImageUrl(r, prod), variants: [] });
+    }
+
+    const label = String(r.name ?? r.variant_name ?? '').trim();
+    let stock: number | null = null;
+    for (const field of ['quantity', 'remain_quantity', 'stock_quantity']) {
+      const v = Number(r[field]);
+      if (Number.isFinite(v) && v >= 0) { stock = v; break; }
+    }
+    productMap.get(code)!.variants.push({ label, stock });
+  }
+
+  return productMap;
+}
+
+function buildHeaderText(): string {
+  const vnNow = new Date(Date.now() + 7 * 60 * 60 * 1000);
+  const dd = String(vnNow.getUTCDate()).padStart(2, '0');
+  const mm = String(vnNow.getUTCMonth() + 1).padStart(2, '0');
+  const yyyy = vnNow.getUTCFullYear();
+  const hh = String(vnNow.getUTCHours()).padStart(2, '0');
+  const min = String(vnNow.getUTCMinutes()).padStart(2, '0');
+  return `📦 Tồn kho MeiT\n📅 ${dd}/${mm}/${yyyy} · ${hh}:${min} VN\n━━━━━━━━━━━━━━━━━━━━━━━━`;
+}
+
+const PRODUCTS_PER_MESSAGE = 9;
+
+export async function sendDailyStockReport(
+  kind: 'scheduled' | 'manual' = 'manual'
+): Promise<{ ok: boolean; error?: string; text?: string }> {
+  const env = getEnvConfig();
+  if (!env.botToken) return { ok: false, error: 'ZALO_BOT_TOKEN chưa được cấu hình.' };
+  if (!env.chatId) return { ok: false, error: 'ZALO_CHAT_ID chưa được cấu hình.' };
+
+  const publicBaseUrl = (
+    process.env.SERVER_PUBLIC_URL?.trim() ||
+    process.env.PANCAKE_PUBLIC_WEBHOOK_BASE?.trim()
+  )?.replace(/\/$/, '');
+  if (!publicBaseUrl) {
+    return { ok: false, error: 'SERVER_PUBLIC_URL hoặc PANCAKE_PUBLIC_WEBHOOK_BASE chưa được cấu hình.' };
+  }
+
+  const config = await getDailyStockConfig();
+  if (config.productCodes.length === 0) {
+    return { ok: false, error: 'Chưa cấu hình sản phẩm nào cho lịch gửi.' };
+  }
+
+  // Fetch Pancake data once
+  let productMap: Map<string, ProductEntry>;
+  try {
+    productMap = await fetchProductMap(config.productCodes, config.shopKey);
+  } catch (err) {
+    const error = err instanceof Error ? err.message : 'Không thể tải dữ liệu tồn kho.';
+    addLog({ sentAt: new Date().toISOString(), kind: 'report', success: false, error, chatId: env.chatId, preview: '' });
+    return { ok: false, error };
+  }
+
+  // Split into chunks of PRODUCTS_PER_MESSAGE
+  const chunks: string[][] = [];
+  for (let i = 0; i < config.productCodes.length; i += PRODUCTS_PER_MESSAGE) {
+    chunks.push(config.productCodes.slice(i, i + PRODUCTS_PER_MESSAGE));
+  }
+
+  const logKind = kind === 'scheduled' ? 'scheduled' : 'report';
+
+  for (let chunkIdx = 0; chunkIdx < chunks.length; chunkIdx++) {
+    const chunk = chunks[chunkIdx];
+
+    // Generate one stock image per product in this chunk
+    const images: string[] = [];
+    for (const code of chunk) {
+      const entry = productMap.get(code);
+      if (!entry) continue;
+      // Split each variant label into color + size
+      const variants = entry.variants.map((v) => {
+        const parts = v.label.split(/\s+/);
+        const size = parts.length > 1 ? parts[parts.length - 1] : v.label;
+        const color = parts.length > 1 ? parts.slice(0, -1).join(' ') : '';
+        return { color, size, stock: v.stock };
+      });
+      try {
+        const b64 = await generateStockImageServer(code, entry.imageUrl, variants);
+        images.push(b64);
+      } catch (err) {
+        console.error(`[zalo-bot] generateStockImage failed for ${code}:`, err);
+      }
+    }
+
+    if (images.length === 0) continue;
+
+    // Stitch into composite (or send single image directly)
+    let compositeB64: string;
+    try {
+      compositeB64 = images.length === 1
+        ? images[0]
+        : await stitchIntoCompositeServer(images);
+    } catch (err) {
+      console.error('[zalo-bot] stitchIntoComposite failed:', err);
+      compositeB64 = images[0];
+    }
+
+    // Prepend header text as caption on first message only
+    const caption = chunkIdx === 0 ? buildHeaderText() : '';
+
+    const result = await sendZaloPhotoBase64(compositeB64, caption);
+    addLog({
+      sentAt: new Date().toISOString(),
+      kind: logKind,
+      success: result.ok,
+      error: result.error,
+      chatId: env.chatId,
+      preview: `chunk ${chunkIdx + 1}/${chunks.length} · ${images.length} ảnh`,
+    });
+
+    if (!result.ok) return result;
+  }
+
+  return { ok: true };
+}
+
 // ---- Daily scheduler ----
 
 let schedulerStarted = false;
-let lastScheduledDate = '';
+let lastSalesScheduledDate = '';
+let lastStockScheduledKey = '';
 
 export function startZaloDailyScheduler(): void {
   if (schedulerStarted) return;
   schedulerStarted = true;
 
   setInterval(() => {
-    const env = getEnvConfig();
-    if (!env.botToken || !env.chatId) return;
+    void (async () => {
+      const env = getEnvConfig();
+      const vnNow = new Date(Date.now() + 7 * 60 * 60 * 1000);
+      const vnDate = vnNow.toISOString().split('T')[0];
+      const vnHour = vnNow.getUTCHours();
+      const vnMinute = vnNow.getUTCMinutes();
 
-    const vnHour = (new Date().getUTCHours() + 7) % 24;
-    const vnDate = new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().split('T')[0];
-
-    if (vnHour === env.reportHour && lastScheduledDate !== vnDate) {
-      lastScheduledDate = vnDate;
-      void (async () => {
+      // Sales report: fires at configured hour (whole hour)
+      if (env.botToken && env.chatId && vnHour === env.reportHour && lastSalesScheduledDate !== vnDate) {
+        lastSalesScheduledDate = vnDate;
         if (useMongo()) {
           const settings = await getAdminSettings().catch(() => null);
           if (settings && !settings.botEnabled.zalo) {
-            console.log('[zalo-bot] Bot đang bị tắt trong cài đặt admin, bỏ qua lịch gửi.');
+            console.log('[zalo-bot] Bot đang bị tắt trong cài đặt admin, bỏ qua lịch gửi báo cáo doanh số.');
             return;
           }
         }
         const result = await dispatchZaloSend('scheduled');
         if (result.ok) {
-          console.log(`[zalo-bot] Đã gửi báo cáo tự động lúc ${vnDate} ${vnHour}h (VN).`);
+          console.log(`[zalo-bot] Đã gửi báo cáo doanh số tự động lúc ${vnDate} ${vnHour}h (VN).`);
         } else {
-          console.error(`[zalo-bot] Lỗi gửi báo cáo tự động: ${result.error ?? ''}`);
+          console.error(`[zalo-bot] Lỗi gửi báo cáo doanh số: ${result.error ?? ''}`);
         }
-      })();
-    }
+      }
+
+      // Stock report: fires at configured sendTime (e.g. "16:30")
+      const stockConfig = await getDailyStockConfig().catch(() => null);
+      if (
+        stockConfig?.enabled &&
+        env.botToken && env.chatId &&
+        stockConfig.productCodes.length > 0
+      ) {
+        const [configH, configM] = stockConfig.sendTime.split(':').map(Number);
+        const stockKey = `${vnDate}-${stockConfig.sendTime}`;
+        if (vnHour === configH && vnMinute === configM && lastStockScheduledKey !== stockKey) {
+          lastStockScheduledKey = stockKey;
+          if (useMongo()) {
+            const settings = await getAdminSettings().catch(() => null);
+            if (settings && !settings.botEnabled.zalo) {
+              console.log('[zalo-bot] Bot đang bị tắt, bỏ qua lịch gửi tồn kho.');
+              return;
+            }
+          }
+          const result = await sendDailyStockReport('scheduled');
+          if (result.ok) {
+            await saveDailyStockConfig({ lastSentDate: vnDate });
+            console.log(`[zalo-bot] Đã gửi tồn kho tự động lúc ${vnDate} ${stockConfig.sendTime} (VN).`);
+          } else {
+            console.error(`[zalo-bot] Lỗi gửi tồn kho: ${result.error ?? ''}`);
+          }
+        }
+      }
+    })();
   }, 60_000);
 
   console.log('[zalo-bot] Bộ lập lịch hàng ngày đã khởi động.');

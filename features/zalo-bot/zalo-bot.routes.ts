@@ -34,3 +34,15 @@ zaloRouter.post('/zalo-bot/send-product-stock', (req, res) => {
 zaloRouter.post('/zalo-bot/send-product-stock-multi', (req, res) => {
   void ctrl.postSendProductStockMulti(req, res);
 });
+
+zaloRouter.get('/zalo-bot/daily-stock-config', (req, res) => {
+  void ctrl.getDailyStockConfigHandler(req, res);
+});
+
+zaloRouter.put('/zalo-bot/daily-stock-config', (req, res) => {
+  void ctrl.saveDailyStockConfigHandler(req, res);
+});
+
+zaloRouter.post('/zalo-bot/send-daily-stock', (req, res) => {
+  void ctrl.postSendDailyStockNow(req, res);
+});
