@@ -254,7 +254,9 @@ export async function sendZaloPhotoBase64(
     const buffer = Buffer.from(imageBase64, 'base64');
     if (!fs.existsSync(TEMP_IMG_DIR)) fs.mkdirSync(TEMP_IMG_DIR, { recursive: true });
 
-    const filename = `stock-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.png`;
+    // Detect JPEG (FF D8 FF) vs PNG
+    const ext = buffer[0] === 0xFF && buffer[1] === 0xD8 ? 'jpg' : 'png';
+    const filename = `stock-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`;
     const filepath = path.join(TEMP_IMG_DIR, filename);
     fs.writeFileSync(filepath, buffer);
 
@@ -272,29 +274,6 @@ export async function sendZaloPhotoBase64(
     const error = err instanceof Error ? err.message : String(err);
     addLog({ sentAt: new Date().toISOString(), kind: 'report', success: false, error, chatId, preview: caption.slice(0, 100) });
     return { ok: false, error };
-  }
-}
-
-async function sendZaloMediaGroup(
-  botToken: string,
-  chatId: string,
-  urls: string[]
-): Promise<{ ok: boolean; error?: string }> {
-  try {
-    const media = urls.map((url) => ({ type: 'photo', media: url }));
-    const res = await httpsPost(
-      `https://bot-api.zaloplatforms.com/bot${botToken}/sendMediaGroup`,
-      JSON.stringify({ chat_id: chatId, media })
-    );
-    console.log(`[zalo-bot] sendMediaGroup HTTP ${res.status}: ${res.body.slice(0, 300)}`);
-    let parsed: { ok?: boolean; description?: string } = {};
-    try { parsed = JSON.parse(res.body) as typeof parsed; } catch { /* ignore */ }
-    if (!res.ok || parsed.ok === false) {
-      return { ok: false, error: parsed.description ?? `HTTP ${res.status}` };
-    }
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -316,26 +295,25 @@ export async function sendProductStockMultiToZalo(
   try {
     if (!fs.existsSync(TEMP_IMG_DIR)) fs.mkdirSync(TEMP_IMG_DIR, { recursive: true });
 
-    const urls: string[] = [];
     const filepaths: string[] = [];
+    let lastResult: { ok: boolean; error?: string } = { ok: true };
+
     for (const b64 of imagesBase64) {
       const filename = `stock-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.png`;
       const filepath = path.join(TEMP_IMG_DIR, filename);
       fs.writeFileSync(filepath, Buffer.from(b64, 'base64'));
       filepaths.push(filepath);
-      urls.push(`${publicBaseUrl}/temp-images/${filename}`);
+
+      const imageUrl = `${publicBaseUrl}/temp-images/${filename}`;
+      console.log(`[zalo-bot] sendPhoto (multi) via URL: ${imageUrl}`);
+      lastResult = await sendZaloPhoto(botToken, chatId, imageUrl, '');
+      console.log(`[zalo-bot] sendPhoto result: ok=${String(lastResult.ok)} error=${lastResult.error ?? ''}`);
+      if (!lastResult.ok) break;
     }
 
     setTimeout(() => {
       for (const fp of filepaths) { try { fs.unlinkSync(fp); } catch { /* ignore */ } }
     }, 5 * 60_000);
-
-    // sendMediaGroup supports max 10 per call — batch if needed
-    let lastResult: { ok: boolean; error?: string } = { ok: true };
-    for (let i = 0; i < urls.length; i += 10) {
-      lastResult = await sendZaloMediaGroup(botToken, chatId, urls.slice(i, i + 10));
-      if (!lastResult.ok) break;
-    }
 
     addLog({
       sentAt: new Date().toISOString(),
@@ -343,7 +321,7 @@ export async function sendProductStockMultiToZalo(
       success: lastResult.ok,
       error: lastResult.error,
       chatId,
-      preview: `Album ${imagesBase64.length} ảnh`,
+      preview: `${imagesBase64.length} ảnh tồn kho`,
     });
     return lastResult;
   } catch (err) {
