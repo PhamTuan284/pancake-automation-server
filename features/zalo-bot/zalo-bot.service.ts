@@ -542,6 +542,13 @@ export async function sendDailyStockReport(
 
   const logKind = kind === 'scheduled' ? 'scheduled' : 'report';
 
+  // Send header as a separate message before images
+  const headerResult = await sendZaloMessage(env.botToken, env.chatId, buildHeaderText());
+  if (!headerResult.ok) {
+    addLog({ sentAt: new Date().toISOString(), kind: logKind, success: false, error: headerResult.error, chatId: env.chatId, preview: 'header message' });
+    return headerResult;
+  }
+
   for (let chunkIdx = 0; chunkIdx < chunks.length; chunkIdx++) {
     const chunk = chunks[chunkIdx];
 
@@ -578,10 +585,7 @@ export async function sendDailyStockReport(
       compositeB64 = images[0];
     }
 
-    // Prepend header text as caption on first message only
-    const caption = chunkIdx === 0 ? buildHeaderText() : '';
-
-    const result = await sendZaloPhotoBase64(compositeB64, caption);
+    const result = await sendZaloPhotoBase64(compositeB64, '');
     addLog({
       sentAt: new Date().toISOString(),
       kind: logKind,
