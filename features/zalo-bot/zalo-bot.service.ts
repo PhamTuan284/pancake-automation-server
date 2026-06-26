@@ -440,7 +440,7 @@ export async function dispatchZaloSend(
 type ProductEntry = {
   name: string;
   imageUrl: string | null;
-  variants: Array<{ label: string; stock: number | null }>;
+  variants: Array<{ color: string; size: string; stock: number | null }>;
 };
 
 function extractImageUrl(r: Record<string, unknown>, prod: Record<string, unknown> | null): string | null {
@@ -483,13 +483,23 @@ async function fetchProductMap(
       productMap.set(code, { name, imageUrl: extractImageUrl(r, prod), variants: [] });
     }
 
-    const label = String(r.name ?? r.variant_name ?? '').trim();
+    const fields = Array.isArray(r.fields) ? (r.fields as Array<Record<string, unknown>>) : [];
+    const colorField = fields.find((f) => typeof f.name === 'string' && /màu/i.test(f.name));
+    const sizeField = fields.find((f) => typeof f.name === 'string' && /size|kích/i.test(f.name));
+    const color = typeof colorField?.value === 'string' ? colorField.value : '';
+    const rawLabel = String(r.name ?? r.variant_name ?? '').trim();
+    const size = typeof sizeField?.value === 'string' && sizeField.value.trim()
+      ? sizeField.value.trim()
+      : (() => {
+          const parts = rawLabel.split(/\s+/);
+          return parts.length > 1 ? parts[parts.length - 1] : rawLabel;
+        })();
     let stock: number | null = null;
     for (const field of ['quantity', 'remain_quantity', 'stock_quantity']) {
       const v = Number(r[field]);
       if (Number.isFinite(v) && v >= 0) { stock = v; break; }
     }
-    productMap.get(code)!.variants.push({ label, stock });
+    productMap.get(code)!.variants.push({ color, size, stock });
   }
 
   return productMap;
@@ -561,13 +571,7 @@ export async function sendDailyStockReport(
     for (const code of chunk) {
       const entry = productMap.get(code);
       if (!entry) continue;
-      // Split each variant label into color + size
-      const variants = entry.variants.map((v) => {
-        const parts = v.label.split(/\s+/);
-        const size = parts.length > 1 ? parts[parts.length - 1] : v.label;
-        const color = parts.length > 1 ? parts.slice(0, -1).join(' ') : '';
-        return { color, size, stock: v.stock };
-      });
+      const variants = entry.variants;
       try {
         const b64 = await generateStockImageServer(code, entry.imageUrl, variants);
         images.push(b64);
