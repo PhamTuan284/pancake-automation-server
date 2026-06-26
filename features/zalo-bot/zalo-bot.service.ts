@@ -38,6 +38,7 @@ function getEnvConfig() {
   return {
     botToken: process.env.ZALO_BOT_TOKEN?.trim() || null,
     chatId: process.env.ZALO_CHAT_ID?.trim() || null,
+    stockChatId: process.env.ZALO_STOCK_CHAT_ID?.trim() || null,
     reportHour: Math.max(0, Math.min(23, parseInt(process.env.ZALO_REPORT_HOUR ?? '8', 10) || 8)),
     shopKey: process.env.ZALO_REPORT_SHOP?.trim() || 'meit',
     windowDays: Math.max(1, parseInt(process.env.ZALO_REPORT_DAYS ?? '7', 10) || 7),
@@ -239,9 +240,11 @@ async function sendZaloPhoto(
 
 export async function sendZaloPhotoBase64(
   imageBase64: string,
-  caption = ''
+  caption = '',
+  overrideChatId?: string
 ): Promise<{ ok: boolean; error?: string }> {
-  const { botToken, chatId } = getEnvConfig();
+  const { botToken, chatId: defaultChatId } = getEnvConfig();
+  const chatId = overrideChatId ?? defaultChatId;
   if (!botToken) return { ok: false, error: 'ZALO_BOT_TOKEN chưa được cấu hình.' };
   if (!chatId) return { ok: false, error: 'ZALO_CHAT_ID chưa được cấu hình.' };
 
@@ -509,7 +512,8 @@ export async function sendDailyStockReport(
 ): Promise<{ ok: boolean; error?: string; text?: string }> {
   const env = getEnvConfig();
   if (!env.botToken) return { ok: false, error: 'ZALO_BOT_TOKEN chưa được cấu hình.' };
-  if (!env.chatId) return { ok: false, error: 'ZALO_CHAT_ID chưa được cấu hình.' };
+  const targetChatId = env.stockChatId ?? env.chatId;
+  if (!targetChatId) return { ok: false, error: 'ZALO_STOCK_CHAT_ID hoặc ZALO_CHAT_ID chưa được cấu hình.' };
 
   const publicBaseUrl = (
     process.env.SERVER_PUBLIC_URL?.trim() ||
@@ -530,7 +534,7 @@ export async function sendDailyStockReport(
     productMap = await fetchProductMap(config.productCodes, config.shopKey);
   } catch (err) {
     const error = err instanceof Error ? err.message : 'Không thể tải dữ liệu tồn kho.';
-    addLog({ sentAt: new Date().toISOString(), kind: 'report', success: false, error, chatId: env.chatId, preview: '' });
+    addLog({ sentAt: new Date().toISOString(), kind: 'report', success: false, error, chatId: targetChatId, preview: '' });
     return { ok: false, error };
   }
 
@@ -543,9 +547,9 @@ export async function sendDailyStockReport(
   const logKind = kind === 'scheduled' ? 'scheduled' : 'report';
 
   // Send header as a separate message before images
-  const headerResult = await sendZaloMessage(env.botToken, env.chatId, buildHeaderText());
+  const headerResult = await sendZaloMessage(env.botToken, targetChatId, buildHeaderText());
   if (!headerResult.ok) {
-    addLog({ sentAt: new Date().toISOString(), kind: logKind, success: false, error: headerResult.error, chatId: env.chatId, preview: 'header message' });
+    addLog({ sentAt: new Date().toISOString(), kind: logKind, success: false, error: headerResult.error, chatId: targetChatId, preview: 'header message' });
     return headerResult;
   }
 
@@ -585,13 +589,13 @@ export async function sendDailyStockReport(
       compositeB64 = images[0];
     }
 
-    const result = await sendZaloPhotoBase64(compositeB64, '');
+    const result = await sendZaloPhotoBase64(compositeB64, '', targetChatId);
     addLog({
       sentAt: new Date().toISOString(),
       kind: logKind,
       success: result.ok,
       error: result.error,
-      chatId: env.chatId,
+      chatId: targetChatId,
       preview: `chunk ${chunkIdx + 1}/${chunks.length} · ${images.length} ảnh`,
     });
 
