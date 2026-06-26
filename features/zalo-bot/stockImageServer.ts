@@ -1,4 +1,10 @@
-import { createCanvas, loadImage } from 'canvas';
+import { createCanvas, loadImage, registerFont } from 'canvas';
+import path from 'path';
+
+const FONT_FAMILY = 'ArialVN';
+try {
+  registerFont(path.join(process.cwd(), 'fonts', 'arialbd.ttf'), { family: FONT_FAMILY, weight: 'bold' });
+} catch { /* font already registered or missing — fall back to system ${FONT_FAMILY}, sans-serif */ }
 
 export async function generateStockImageServer(
   displayCode: string,
@@ -71,9 +77,9 @@ export async function generateStockImageServer(
   groups.slice(0, 4).forEach((group, i) => {
     const [ax, ay, alignRight, alignBottom] = corners[i];
 
-    ctx.font = `bold ${STOCK_FONT}px sans-serif`;
+    ctx.font = `bold ${STOCK_FONT}px ${FONT_FAMILY}, sans-serif`;
     const maxStockW = Math.max(...group.items.map((it: { stock: number | null; size: string }) => ctx.measureText(`${it.stock ?? '?'} ${it.size}`).width));
-    ctx.font = `bold ${COLOR_FONT}px sans-serif`;
+    ctx.font = `bold ${COLOR_FONT}px ${FONT_FAMILY}, sans-serif`;
     const colorW = group.color ? ctx.measureText(group.color).width : 0;
     const boxW = Math.max(maxStockW, colorW) + PAD * 2;
     const boxH = PAD + (group.color ? COLOR_FONT + 10 : 0) + group.items.length * LINE_H + PAD;
@@ -96,12 +102,12 @@ export async function generateStockImageServer(
     let textY = boxY + PAD;
 
     if (group.color) {
-      ctx.font = `bold ${COLOR_FONT}px sans-serif`;
+      ctx.font = `bold ${COLOR_FONT}px ${FONT_FAMILY}, sans-serif`;
       textY += COLOR_FONT;
       ctx.fillText(group.color, textX, textY);
       textY += 10;
     }
-    ctx.font = `bold ${STOCK_FONT}px sans-serif`;
+    ctx.font = `bold ${STOCK_FONT}px ${FONT_FAMILY}, sans-serif`;
     for (const it of group.items) {
       textY += LINE_H;
       ctx.fillText(`${it.stock ?? '?'} ${it.size}`, textX, textY);
@@ -110,7 +116,7 @@ export async function generateStockImageServer(
 
   // Product code badge (top-left)
   const CODE_FONT = 50;
-  ctx.font = `bold ${CODE_FONT}px sans-serif`;
+  ctx.font = `bold ${CODE_FONT}px ${FONT_FAMILY}, sans-serif`;
   const codeLabelW = ctx.measureText(displayCode).width + 32;
   const codeLabelH = CODE_FONT + 24;
   ctx.save();
@@ -122,7 +128,7 @@ export async function generateStockImageServer(
   ctx.restore();
   ctx.fillStyle = WHITE;
   ctx.textAlign = 'left';
-  ctx.font = `bold ${CODE_FONT}px sans-serif`;
+  ctx.font = `bold ${CODE_FONT}px ${FONT_FAMILY}, sans-serif`;
   ctx.fillText(displayCode, 32, 16 + CODE_FONT + 6);
 
   // MeiT watermark (top-right) — use serif fallback, Georgia unavailable on server
@@ -131,7 +137,7 @@ export async function generateStockImageServer(
   ctx.shadowBlur = 8;
   ctx.fillStyle = 'rgba(255,255,255,0.95)';
   ctx.textAlign = 'right';
-  ctx.font = 'italic bold 42px serif';
+  ctx.font = `italic bold 42px ${FONT_FAMILY}, serif`;
   ctx.fillText('MeiT', W - 20, 66);
   ctx.restore();
 
