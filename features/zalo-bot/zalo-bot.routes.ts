@@ -46,3 +46,15 @@ zaloRouter.put('/zalo-bot/daily-stock-config', (req, res) => {
 zaloRouter.post('/zalo-bot/send-daily-stock', (req, res) => {
   void ctrl.postSendDailyStockNow(req, res);
 });
+
+zaloRouter.post('/zalo-bot/send-mock-abnormal-order', (req, res) => {
+  void ctrl.postSendMockAbnormalOrder(req, res);
+});
+
+zaloRouter.get('/zalo-bot/abnormal-order-config', (req, res) => {
+  void ctrl.getAbnormalOrderConfigHandler(req, res);
+});
+
+zaloRouter.put('/zalo-bot/abnormal-order-config', (req, res) => {
+  void ctrl.saveAbnormalOrderConfigHandler(req, res);
+});

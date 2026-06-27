@@ -5,6 +5,7 @@ import {
   WDIO_SPEC_EINVOICE_AUTOMATION,
 } from '../pancake-einvoice/automationRunner.service';
 import * as webhookService from './webhook.service';
+import { checkAndSendAbnormalOrderAlert } from '../zalo-bot/abnormalOrderAlert';
 
 function debugWebhookIngress(req: Request, label: string): void {
   const secretHeaderName = webhookService
@@ -88,6 +89,10 @@ export async function postPancakeWebhookIngress(
 
   res.json({ success: true });
 
+  if (event.kind === 'orders') {
+    void checkAndSendAbnormalOrderAlert(event.payload);
+  }
+
   if (webhookService.shouldAutoRunFromWebhook()) {
     void (async () => {
       if (isAutomationRunning()) {
@@ -131,6 +136,10 @@ export async function postLegacyWebhookReceiver(
   const event = await webhookService.recordWebhookEventWithPersistence(req);
   console.log(`[webhook] Received type=${event.kind} at=${event.at}`);
   res.json({ success: true });
+
+  if (event.kind === 'orders') {
+    void checkAndSendAbnormalOrderAlert(event.payload);
+  }
 }
 
 export async function postPancakeWebhookPing(

@@ -12,6 +12,8 @@ import {
   type ZaloProductStockPayload,
 } from './zalo-bot.service';
 import { getDailyStockConfig, saveDailyStockConfig } from './dailyStockConfig';
+import { getAbnormalOrderConfig, saveAbnormalOrderConfig } from './abnormalOrderConfig';
+import { sendMockAbnormalOrderAlert } from './abnormalOrderAlert';
 
 export function getConfig(_req: Request, res: Response): void {
   res.json({ ok: true, ...getZaloBotConfig() });
@@ -161,4 +163,40 @@ export async function postSendDailyStockNow(_req: Request, res: Response): Promi
     return;
   }
   res.json({ ok: true, text: result.text });
+}
+
+export async function postSendMockAbnormalOrder(_req: Request, res: Response): Promise<void> {
+  const result = await sendMockAbnormalOrderAlert();
+  if (!result.ok) {
+    res.status(400).json({ ok: false, error: result.error });
+    return;
+  }
+  res.json({ ok: true, text: result.text });
+}
+
+export async function getAbnormalOrderConfigHandler(_req: Request, res: Response): Promise<void> {
+  const config = await getAbnormalOrderConfig();
+  res.json({ ok: true, ...config });
+}
+
+export async function saveAbnormalOrderConfigHandler(req: Request, res: Response): Promise<void> {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const enabled = typeof body.enabled === 'boolean' ? body.enabled : undefined;
+  const thresholdPct =
+    typeof body.thresholdPct === 'number' &&
+    body.thresholdPct >= 0 &&
+    body.thresholdPct <= 100
+      ? body.thresholdPct
+      : undefined;
+
+  if (enabled === undefined && thresholdPct === undefined) {
+    res.status(400).json({ ok: false, error: 'Thiếu trường enabled hoặc thresholdPct.' });
+    return;
+  }
+
+  const updated = await saveAbnormalOrderConfig({
+    ...(enabled !== undefined && { enabled }),
+    ...(thresholdPct !== undefined && { thresholdPct }),
+  });
+  res.json({ ok: true, ...updated });
 }

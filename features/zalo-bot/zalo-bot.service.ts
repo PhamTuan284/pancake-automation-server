@@ -24,7 +24,7 @@ export type ZaloBotConfig = {
 export type ZaloSendLog = {
   id: string;
   sentAt: string;
-  kind: 'test' | 'report' | 'scheduled';
+  kind: 'test' | 'report' | 'scheduled' | 'alert';
   success: boolean;
   error?: string;
   chatId: string;
@@ -433,6 +433,26 @@ export async function dispatchZaloSend(
     preview: text.slice(0, 100),
   });
   return { ...result, text };
+}
+
+export async function sendZaloText(
+  text: string,
+  overrideChatId?: string
+): Promise<{ ok: boolean; error?: string }> {
+  const env = getEnvConfig();
+  const chatId = overrideChatId ?? env.chatId;
+  if (!env.botToken) return { ok: false, error: 'ZALO_BOT_TOKEN chưa được cấu hình.' };
+  if (!chatId) return { ok: false, error: 'ZALO_CHAT_ID chưa được cấu hình.' };
+  const result = await sendZaloMessage(env.botToken, chatId, text);
+  addLog({
+    sentAt: new Date().toISOString(),
+    kind: 'alert',
+    success: result.ok,
+    error: result.error,
+    chatId,
+    preview: text.slice(0, 100),
+  });
+  return result;
 }
 
 // ---- Daily stock report (for schedule) ----
