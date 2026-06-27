@@ -535,6 +535,30 @@ function buildHeaderText(): string {
   return `📦 Tồn kho MeiT\n📅 ${dd}/${mm}/${yyyy} · ${hh}:${min} VN\n━━━━━━━━━━━━━━━━━━━━━━━━`;
 }
 
+function buildChunkStockText(chunk: string[], productMap: Map<string, ProductEntry>): string {
+  const blocks: string[] = [];
+  for (const code of chunk) {
+    const entry = productMap.get(code);
+    if (!entry) continue;
+
+    const colorMap = new Map<string, Array<{ size: string; stock: number | null }>>();
+    for (const v of entry.variants) {
+      const key = v.color || '__';
+      if (!colorMap.has(key)) colorMap.set(key, []);
+      colorMap.get(key)!.push({ size: v.size, stock: v.stock });
+    }
+
+    const lines: string[] = [`🔖 ${code}`];
+    for (const [colorKey, items] of colorMap) {
+      const label = colorKey === '__' ? '' : `${colorKey}: `;
+      const sizes = items.map((it) => `${it.stock ?? '?'}${it.size}`).join(' · ');
+      lines.push(`  ${label}${sizes}`);
+    }
+    blocks.push(lines.join('\n'));
+  }
+  return blocks.join('\n─────────────────────\n');
+}
+
 const PRODUCTS_PER_MESSAGE = 9;
 
 export async function sendDailyStockReport(
@@ -613,17 +637,28 @@ export async function sendDailyStockReport(
       compositeB64 = images[0];
     }
 
-    const result = await sendZaloPhotoBase64(compositeB64, '', targetChatId);
+    const imgResult = await sendZaloPhotoBase64(compositeB64, '', targetChatId);
     addLog({
       sentAt: new Date().toISOString(),
       kind: logKind,
-      success: result.ok,
-      error: result.error,
+      success: imgResult.ok,
+      error: imgResult.error,
       chatId: targetChatId,
       preview: `chunk ${chunkIdx + 1}/${chunks.length} · ${images.length} ảnh`,
     });
+    if (!imgResult.ok) return imgResult;
 
-    if (!result.ok) return result;
+    const stockText = buildChunkStockText(chunk, productMap);
+    const textResult = await sendZaloMessage(env.botToken, targetChatId, stockText);
+    addLog({
+      sentAt: new Date().toISOString(),
+      kind: logKind,
+      success: textResult.ok,
+      error: textResult.error,
+      chatId: targetChatId,
+      preview: stockText.slice(0, 80),
+    });
+    if (!textResult.ok) return textResult;
   }
 
   return { ok: true };
