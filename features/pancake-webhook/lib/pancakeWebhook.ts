@@ -264,6 +264,36 @@ export async function fetchPancakeOpenApi(
   return data;
 }
 
+export async function postPancakeOpenApi(
+  pathname: string,
+  body: unknown,
+  shopKey: InvoiceShopKey = 'meit'
+): Promise<unknown> {
+  const url = resolveOpenApiEndpoint(shopKey, pathname);
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const text = await response.text();
+  let data: unknown = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = text;
+    }
+  }
+  if (!response.ok) {
+    throw new Error(
+      `Pancake API error (${response.status}): ${
+        typeof data === 'string' ? data : JSON.stringify(data)
+      }`
+    );
+  }
+  return data;
+}
+
 function extractRowsFromPage(data: unknown): Record<string, unknown>[] {
   if (!data) return [];
   if (Array.isArray(data)) {
