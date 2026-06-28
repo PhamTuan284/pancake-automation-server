@@ -43,6 +43,7 @@ export type StorefrontVariant = {
   price: number;
   stock: number;
   attributes: Record<string, string>;
+  images?: string[];
 };
 
 const STOREFRONT_CATEGORIES: StorefrontCategory[] = [
@@ -133,20 +134,28 @@ function parseVariantAttributes(variantName: string): Record<string, string> {
 
 function extractImageUrls(raw: unknown): string[] {
   if (!raw) return [];
+  // If it's a plain URL string, return it directly
   if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+    if (trimmed.startsWith('http') || trimmed.startsWith('//')) return [trimmed];
+    // Try JSON-encoded array/object
     try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+      const parsed: unknown = JSON.parse(trimmed);
+      return extractImageUrls(parsed);
     } catch {
-      return raw ? [raw] : [];
+      return [trimmed];
     }
   }
   if (Array.isArray(raw)) {
     return raw.flatMap((item) => {
-      if (typeof item === 'string') return item ? [item] : [];
+      if (typeof item === 'string') return item.trim() ? [item.trim()] : [];
       if (item && typeof item === 'object') {
-        const url = (item as Record<string, unknown>).url ?? (item as Record<string, unknown>).src ?? (item as Record<string, unknown>).image_url;
-        return url ? [String(url)] : [];
+        const obj = item as Record<string, unknown>;
+        // Try every common Pancake image object key
+        const url = obj.url ?? obj.src ?? obj.image_url ?? obj.link ?? obj.path ?? obj.name;
+        if (url && typeof url === 'string' && url.startsWith('http')) return [url];
+        if (url) return extractImageUrls(url);
       }
       return [];
     });
@@ -171,7 +180,18 @@ function rawProductToStorefront(
   const classification = classifyProduct(name, categoryName);
   if (!classification) return null;
 
-  const images = extractImageUrls(product.images ?? product.image ?? product.image_url);
+  const rawImages = [
+    product.images,
+    product.image,
+    product.image_url,
+    product.cover,
+    product.cover_url,
+    product.thumbnail,
+    product.thumbnail_url,
+  ];
+  const images = [
+    ...new Set(rawImages.flatMap(extractImageUrls).filter((u) => u.startsWith('http'))),
+  ];
   const basePrice = Number(product.price ?? product.base_price ?? 0);
   const originalPrice = Number(product.original_price ?? product.compare_price ?? 0) || undefined;
 
@@ -179,13 +199,21 @@ function rawProductToStorefront(
     (v) => String(v.product_id ?? '') === id || String(v.productId ?? '') === id
   );
 
-  const variants: StorefrontVariant[] = productVariations.map((v) => ({
-    id: String(v.variation_id ?? v.id ?? ''),
-    name: String(v.name ?? v.variation_name ?? ''),
-    price: Number(v.price ?? basePrice),
-    stock: Number(v.quantity ?? v.remain_quantity ?? v.stock_quantity ?? 0),
-    attributes: parseVariantAttributes(String(v.name ?? v.variation_name ?? '')),
-  }));
+  const variants: StorefrontVariant[] = productVariations.map((v) => {
+    const variantImages = extractImageUrls(v.image_url ?? v.images ?? v.image ?? v.cover_url);
+    return {
+      id: String(v.variation_id ?? v.id ?? ''),
+      name: String(v.name ?? v.variation_name ?? ''),
+      price: Number(v.price ?? basePrice),
+      stock: Number(v.quantity ?? v.remain_quantity ?? v.stock_quantity ?? 0),
+      attributes: parseVariantAttributes(String(v.name ?? v.variation_name ?? '')),
+      images: variantImages,
+    };
+  });
+
+  // Merge variant images into product images (deduplicated)
+  const variantImages = variants.flatMap((v) => v.images ?? []);
+  const allImages = [...new Set([...images, ...variantImages])];
 
   const totalStock = variants.reduce((sum, v) => sum + v.stock, 0);
 
@@ -200,7 +228,7 @@ function rawProductToStorefront(
     slug: slugify(name) + '-' + id,
     price: basePrice,
     originalPrice,
-    images,
+    images: allImages,
     categoryId: classification.categoryId,
     subcategoryId: classification.subcategoryId,
     tags,
