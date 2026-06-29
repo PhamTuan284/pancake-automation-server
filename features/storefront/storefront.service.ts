@@ -192,8 +192,11 @@ function rawProductToStorefront(
   const images = [
     ...new Set(rawImages.flatMap(extractImageUrls).filter((u) => u.startsWith('http'))),
   ];
-  const basePrice = Number(product.price ?? product.base_price ?? 0);
-  const originalPrice = Number(product.original_price ?? product.compare_price ?? 0) || undefined;
+  const basePrice = Number(
+    product.retail_price ?? product.price ?? product.base_price ?? product.sale_price ?? 0
+  );
+  const originalPrice =
+    Number(product.original_price ?? product.compare_price ?? product.list_price ?? 0) || undefined;
 
   const productVariations = variations.filter(
     (v) => String(v.product_id ?? '') === id || String(v.productId ?? '') === id
@@ -204,7 +207,7 @@ function rawProductToStorefront(
     return {
       id: String(v.variation_id ?? v.id ?? ''),
       name: String(v.name ?? v.variation_name ?? ''),
-      price: Number(v.price ?? basePrice),
+      price: Number(v.retail_price ?? v.price ?? basePrice),
       stock: Number(v.quantity ?? v.remain_quantity ?? v.stock_quantity ?? 0),
       attributes: parseVariantAttributes(String(v.name ?? v.variation_name ?? '')),
       images: variantImages,
@@ -217,6 +220,10 @@ function rawProductToStorefront(
 
   const totalStock = variants.reduce((sum, v) => sum + v.stock, 0);
 
+  // When product root has no price, derive it from the cheapest variant
+  const variantPrices = variants.map((v) => v.price).filter((p) => p > 0);
+  const effectivePrice = basePrice > 0 ? basePrice : (variantPrices.length > 0 ? Math.min(...variantPrices) : 0);
+
   const tags: string[] = [];
   if (Array.isArray(product.tags)) {
     tags.push(...product.tags.map(String));
@@ -226,7 +233,7 @@ function rawProductToStorefront(
     id,
     name,
     slug: slugify(name) + '-' + id,
-    price: basePrice,
+    price: effectivePrice,
     originalPrice,
     images: allImages,
     categoryId: classification.categoryId,
@@ -257,6 +264,15 @@ async function fetchAllProducts(shopKey: InvoiceShopKey): Promise<StorefrontProd
     .map((p) => rawProductToStorefront(p, rawVariations))
     .filter((p): p is StorefrontProduct => p !== null);
 
+  if (rawProducts.length > 0) {
+    const sample = rawProducts[0];
+    console.log('[storefront] sample product keys:', Object.keys(sample));
+    console.log('[storefront] sample price fields:', {
+      retail_price: sample.retail_price,
+      price: sample.price,
+      base_price: sample.base_price,
+    });
+  }
   productCache = { data: products, fetchedAt: now };
   return products;
 }
