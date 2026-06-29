@@ -211,6 +211,26 @@ export async function getPancakeVariantSalesAnalytics(
   }
 }
 
+export async function getPancakeEmployeeProductivity(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const query = req.query as Record<string, unknown>;
+    const shopKey = webhookService.resolveWebhookShopKeyFromRequest(req);
+    const result = await webhookService.computeEmployeeProductivity({
+      days: query.days,
+      shopKey,
+      role: query.role,
+    });
+    res.json({ ok: true, result });
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : 'Failed to compute employee productivity';
+    res.status(400).json({ ok: false, error: message });
+  }
+}
+
 /** Plain-text report for n8n → Zalo Bot sendMessage. */
 export async function getPancakeVariantSalesZaloText(
   req: Request,

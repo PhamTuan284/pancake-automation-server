@@ -60,3 +60,7 @@ webhookRouter.get('/pancake-webhook/analytics/variant-sales/zalo-text', (req, re
 webhookRouter.get('/pancake-webhook/analytics/variant-sales', (req, res) => {
   void webhookController.getPancakeVariantSalesAnalytics(req, res);
 });
+
+webhookRouter.get('/pancake-webhook/analytics/employee-productivity', (req, res) => {
+  void webhookController.getPancakeEmployeeProductivity(req, res);
+});

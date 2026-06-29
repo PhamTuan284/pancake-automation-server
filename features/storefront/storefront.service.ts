@@ -21,6 +21,18 @@ export type StorefrontSubcategory = {
   keywords: string[];
 };
 
+export type StorefrontAttribute = {
+  id: string;
+  name: string;
+  values: string[];
+};
+
+export type StorefrontVariantField = {
+  name: string;
+  value: string;
+  keyValue: string;
+};
+
 export type StorefrontProduct = {
   id: string;
   name: string;
@@ -33,6 +45,7 @@ export type StorefrontProduct = {
   tags: string[];
   inStock: boolean;
   totalStock: number;
+  attributes: StorefrontAttribute[];
   variants: StorefrontVariant[];
   description?: string;
 };
@@ -42,8 +55,8 @@ export type StorefrontVariant = {
   name: string;
   price: number;
   stock: number;
-  attributes: Record<string, string>;
-  images?: string[];
+  images: string[];
+  fields: StorefrontVariantField[];
 };
 
 const STOREFRONT_CATEGORIES: StorefrontCategory[] = [
@@ -115,21 +128,49 @@ function classifyProduct(name: string, categoryName?: string): { categoryId: str
   return null;
 }
 
-function parseVariantAttributes(variantName: string): Record<string, string> {
-  const parts = variantName.split(/[,\-\/]/).map((p) => p.trim());
-  const attrs: Record<string, string> = {};
-  parts.forEach((part, i) => {
-    const lower = part.toLowerCase();
-    if (/^(xs|s|m|l|xl|xxl|\d{2,3}cm|\d+)$/i.test(part)) {
-      attrs['size'] = part;
-    } else if (i === 0 && parts.length > 1) {
-      attrs['color'] = part;
-    } else {
-      attrs[`option${i + 1}`] = part;
-    }
-  });
-  if (Object.keys(attrs).length === 0) attrs['option'] = variantName;
-  return attrs;
+function parseProductAttributes(raw: unknown): StorefrontAttribute[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((a): a is Record<string, unknown> => a !== null && typeof a === 'object')
+    .map((a) => ({
+      id: String(a.id ?? ''),
+      name: String(a.name ?? ''),
+      values: Array.isArray(a.values) ? a.values.map(String) : [],
+    }))
+    .filter((a) => a.name && a.values.length > 0);
+}
+
+function parseEmbeddedVariations(
+  rawVariations: unknown,
+  stockMap: Map<string, number>,
+  basePrice: number
+): StorefrontVariant[] {
+  if (!Array.isArray(rawVariations)) return [];
+  return rawVariations
+    .filter(
+      (v): v is Record<string, unknown> =>
+        v !== null && typeof v === 'object' && !v.is_removed && !v.is_hidden
+    )
+    .map((v) => {
+      const varId = String(v.id ?? '');
+      const fields: StorefrontVariantField[] = Array.isArray(v.fields)
+        ? (v.fields as Record<string, unknown>[]).map((f) => ({
+            name: String(f.name ?? ''),
+            value: String(f.value ?? ''),
+            keyValue: String(f.keyValue ?? ''),
+          }))
+        : [];
+      const varImages = extractImageUrls(v.images ?? v.image ?? v.image_url ?? v.cover_url);
+      const stock = stockMap.get(varId) ?? Number(v.remain_quantity ?? v.quantity ?? 0);
+      return {
+        id: varId,
+        name: String(v.display_id ?? v.name ?? ''),
+        price: Number(v.retail_price ?? v.price ?? basePrice),
+        stock,
+        images: varImages,
+        fields,
+      };
+    });
 }
 
 function extractImageUrls(raw: unknown): string[] {
@@ -165,7 +206,8 @@ function extractImageUrls(raw: unknown): string[] {
 
 function rawProductToStorefront(
   product: Record<string, unknown>,
-  variations: Record<string, unknown>[]
+  stockMap: Map<string, number>,
+  hasStockData: boolean
 ): StorefrontProduct | null {
   const id = String(product.id ?? '').trim();
   const name = String(product.name ?? '').trim();
@@ -180,47 +222,25 @@ function rawProductToStorefront(
   const classification = classifyProduct(name, categoryName);
   if (!classification) return null;
 
-  const rawImages = [
-    product.images,
-    product.image,
-    product.image_url,
-    product.cover,
-    product.cover_url,
-    product.thumbnail,
-    product.thumbnail_url,
-  ];
-  const images = [
-    ...new Set(rawImages.flatMap(extractImageUrls).filter((u) => u.startsWith('http'))),
-  ];
   const basePrice = Number(
     product.retail_price ?? product.price ?? product.base_price ?? product.sale_price ?? 0
   );
   const originalPrice =
     Number(product.original_price ?? product.compare_price ?? product.list_price ?? 0) || undefined;
 
-  const productVariations = variations.filter(
-    (v) => String(v.product_id ?? '') === id || String(v.productId ?? '') === id
-  );
+  // Parse product-level attribute definitions (axes like "Màu sắc", "Size")
+  const attributes = parseProductAttributes(product.product_attributes);
 
-  const variants: StorefrontVariant[] = productVariations.map((v) => {
-    const variantImages = extractImageUrls(v.image_url ?? v.images ?? v.image ?? v.cover_url);
-    return {
-      id: String(v.variation_id ?? v.id ?? ''),
-      name: String(v.name ?? v.variation_name ?? ''),
-      price: Number(v.retail_price ?? v.price ?? basePrice),
-      stock: Number(v.quantity ?? v.remain_quantity ?? v.stock_quantity ?? 0),
-      attributes: parseVariantAttributes(String(v.name ?? v.variation_name ?? '')),
-      images: variantImages,
-    };
-  });
+  // Parse embedded variations using fields[] for attribute structure
+  const variants = parseEmbeddedVariations(product.variations, stockMap, basePrice);
 
-  // Merge variant images into product images (deduplicated)
-  const variantImages = variants.flatMap((v) => v.images ?? []);
-  const allImages = [...new Set([...images, ...variantImages])];
+  // Collect product-level images, then merge unique variant images
+  const rootImages = [product.images, product.image, product.image_url, product.cover, product.cover_url, product.thumbnail, product.thumbnail_url];
+  const productImages = [...new Set(rootImages.flatMap(extractImageUrls).filter((u) => u.startsWith('http')))];
+  const variantImages = variants.flatMap((v) => v.images);
+  const allImages = [...new Set([...productImages, ...variantImages])];
 
   const totalStock = variants.reduce((sum, v) => sum + v.stock, 0);
-
-  // When product root has no price, derive it from the cheapest variant
   const variantPrices = variants.map((v) => v.price).filter((p) => p > 0);
   const effectivePrice = basePrice > 0 ? basePrice : (variantPrices.length > 0 ? Math.min(...variantPrices) : 0);
 
@@ -239,10 +259,11 @@ function rawProductToStorefront(
     categoryId: classification.categoryId,
     subcategoryId: classification.subcategoryId,
     tags,
-    inStock: totalStock > 0,
+    inStock: !hasStockData || totalStock > 0,
     totalStock,
+    attributes,
     variants,
-    description: String(product.description ?? product.content ?? '').trim() || undefined,
+    description: String(product.description ?? product.content ?? product.note_product ?? '').trim() || undefined,
   };
 }
 
@@ -255,24 +276,28 @@ async function fetchAllProducts(shopKey: InvoiceShopKey): Promise<StorefrontProd
     return productCache.data;
   }
 
-  const [rawProducts, rawVariations] = await Promise.all([
+  const [rawProducts, rawVariationsStock] = await Promise.all([
     fetchPancakeOpenApiPaginated('/products', undefined, shopKey).catch(() => [] as Record<string, unknown>[]),
+    // Still fetch /products/variations for warehouse stock quantities
     fetchPancakeOpenApiPaginated('/products/variations', undefined, shopKey).catch(() => [] as Record<string, unknown>[]),
   ]);
 
-  const products = rawProducts
-    .map((p) => rawProductToStorefront(p, rawVariations))
-    .filter((p): p is StorefrontProduct => p !== null);
-
-  if (rawProducts.length > 0) {
-    const sample = rawProducts[0];
-    console.log('[storefront] sample product keys:', Object.keys(sample));
-    console.log('[storefront] sample price fields:', {
-      retail_price: sample.retail_price,
-      price: sample.price,
-      base_price: sample.base_price,
-    });
+  // Build variation ID -> stock quantity map from warehouse endpoint
+  const stockMap = new Map<string, number>();
+  for (const v of rawVariationsStock) {
+    const varId = String(v.variation_id ?? v.id ?? '');
+    const qty = Number(v.remain_quantity ?? v.quantity ?? v.stock_quantity ?? 0);
+    if (varId) stockMap.set(varId, qty);
   }
+
+  // Only trust stock data when the warehouse endpoint returned actual quantities
+  const hasStockData = [...stockMap.values()].some((qty) => qty > 0);
+
+  const products = rawProducts
+    .map((p) => rawProductToStorefront(p, stockMap, hasStockData))
+    .filter((p): p is StorefrontProduct => p !== null)
+    .filter((p) => p.inStock);
+
   productCache = { data: products, fetchedAt: now };
   return products;
 }

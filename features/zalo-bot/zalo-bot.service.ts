@@ -2,6 +2,7 @@ import https from 'https';
 import path from 'path';
 import fs from 'fs';
 import { getVariantSalesAnalytics, getAllProductVariations } from '../pancake-webhook/webhook.service';
+import { computeVariantSalesAnalytics } from '../pancake-webhook/lib/variantSalesAnalytics';
 import { formatVariantSalesZaloText } from './formatVariantSalesZaloText';
 import { getAdminSettings } from '../../common/models/adminSettingsModel';
 import { useMongo } from '../../common/mongo';
@@ -559,6 +560,51 @@ function buildChunkStockText(chunk: string[], productMap: Map<string, ProductEnt
   return blocks.join('\n─────────────────────\n');
 }
 
+type SlowMover = { code: string; totalStock: number; soldPerDay: number; daysLeft: number | null };
+
+async function fetchSlowMovers(
+  productCodes: string[],
+  shopKey: string,
+  windowDays: number
+): Promise<SlowMover[]> {
+  const analytics = await computeVariantSalesAnalytics({ days: windowDays, shopKey });
+  const codeSet = new Set(productCodes);
+
+  const agg = new Map<string, { stock: number; soldPerDay: number }>();
+  for (const v of analytics.variants) {
+    if (!v.productCode || !codeSet.has(v.productCode)) continue;
+    const cur = agg.get(v.productCode) ?? { stock: 0, soldPerDay: 0 };
+    cur.stock += v.currentStock ?? 0;
+    cur.soldPerDay += v.avgSoldPerDay;
+    agg.set(v.productCode, cur);
+  }
+
+  const results: SlowMover[] = [];
+  for (const [code, { stock, soldPerDay }] of agg) {
+    if (stock < 20) continue;
+    const daysLeft = soldPerDay > 0 ? Math.round(stock / soldPerDay) : null;
+    if (daysLeft === null || daysLeft > 14) {
+      results.push({ code, totalStock: stock, soldPerDay: Math.round(soldPerDay * 10) / 10, daysLeft });
+    }
+  }
+
+  return results.sort((a, b) => {
+    if (a.daysLeft === null && b.daysLeft === null) return b.totalStock - a.totalStock;
+    if (a.daysLeft === null) return -1;
+    if (b.daysLeft === null) return 1;
+    return b.daysLeft - a.daysLeft;
+  });
+}
+
+function buildSlowMoversText(items: SlowMover[], windowDays: number): string {
+  const lines = [`⚠️ Hàng tồn chậm bán mọi người chú ý đẩy hàng`, '━━━━━━━━━━━━━━━━━━━━━━━━'];
+  for (const p of items) {
+    const rate = p.soldPerDay.toFixed(1);
+    lines.push(`📦 ${p.code}  Tồn: ${p.totalStock}  |  ${rate}/ngày`);
+  }
+  return lines.join('\n');
+}
+
 const PRODUCTS_PER_MESSAGE = 9;
 
 export async function sendDailyStockReport(
@@ -659,6 +705,18 @@ export async function sendDailyStockReport(
       preview: stockText.slice(0, 80),
     });
     if (!textResult.ok) return textResult;
+  }
+
+  // Slow-movers alert
+  try {
+    const slowMovers = await fetchSlowMovers(config.productCodes, config.shopKey, env.windowDays);
+    if (slowMovers.length > 0) {
+      const slowText = buildSlowMoversText(slowMovers, env.windowDays);
+      const slowResult = await sendZaloMessage(env.botToken, targetChatId, slowText);
+      addLog({ sentAt: new Date().toISOString(), kind: logKind, success: slowResult.ok, error: slowResult.error, chatId: targetChatId, preview: 'slow-movers' });
+    }
+  } catch (err) {
+    console.error('[zalo-bot] fetchSlowMovers failed:', err);
   }
 
   return { ok: true };

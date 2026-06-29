@@ -1,0 +1,676 @@
+{
+  "bill_phone_number": "0961381555",
+  "ads_source": null,
+  "ad_id": "52570078988384",
+  "time_assign_care": null,
+  "fee_marketplace": 0,
+  "note": "",
+  "tags": [
+    {
+      "id": 1,
+      "name": "Giao không thành"
+    }
+  ],
+  "prepaid": 0,
+  "assigning_care_id": null,
+  "shipping_fee": 0,
+  "items": [
+    {
+      "id": 11293359679,
+      "components": null,
+      "note": null,
+      "variation_id": "6959cfe6-6a12-4e5f-92d7-b88b303dc3da",
+      "added_to_cart_quantity": 1,
+      "quantity": 1,
+      "measure_group_id": null,
+      "note_product": "Set Cotton Lụa MeiT City Rush ND8921 là sự kết hợp hoàn hảo giữa tinh thần thể thao khỏe khoắn và gu thời trang thành thị hiện đại. Thiết kế mang lại một diện mạo vừa năng động, trẻ trung lại vừa phóng khoáng, thời thượng với sự bắt cặp ăn ý giữa chiếc áo",
+      "product_id": "20c82f2b-2608-4fe1-95da-184fc3cf63e8",
+      "variation_info": {
+        "name": "ND8921 - Set Cotton Lụa MeiT City Rush",
+        "fields": [
+          {
+            "id": "7dd336dc-620c-4f5e-b6cd-54bd1708be2c",
+            "keyValue": "DEN",
+            "name": "Màu sắc",
+            "value": "Đen"
+          },
+          {
+            "id": "cd30ca2d-4970-4025-896b-aef8bb2ec21d",
+            "keyValue": "S",
+            "name": "Size",
+            "value": "S"
+          }
+        ],
+        "detail": "Màu sắc: Đen, Size: S",
+        "weight": 500,
+        "brand_id": null,
+        "category_ids": [
+          1228060469
+        ],
+        "display_id": "ND8921DENS",
+        "retail_price": 750000,
+        "last_imported_price": 0,
+        "avg_price": 0,
+        "exact_price": 0,
+        "images": [
+          "https://content.pancake.vn/2-2606/2026/6/17/188e14c22054dcdc884f10dd0eaed63b5638bda0.png"
+        ],
+        "is_upsale_product": null,
+        "measure_info": null,
+        "retail_price_original": null,
+        "tax_rate": 0,
+        "barcode": "ND8921DENS",
+        "product_display_id": "ND8921"
+      },
+      "is_composite": false,
+      "assigning_seller": {
+        "id": "c581175b-ad4e-4def-9afb-6f16347e09f6",
+        "name": "Ngô Thị Phương Anh",
+        "email": "hung1008nq2007@gmail.com",
+        "phone_number": "0328336038",
+        "fb_id": "534709653405052",
+        "avatar_url": "https://statics.pancake.vn/web-media/91/68/aa/4d/2f5c95ba23476f5549910882e4e42530fdee6123b4a995e226e18e3e.svg"
+      },
+      "assigning_seller_id": "c581175b-ad4e-4def-9afb-6f16347e09f6",
+      "total_discount": 0,
+      "returning_quantity": 0,
+      "one_time_product": false,
+      "composite_item_id": null,
+      "discount_each_product": 0,
+      "exchange_count": 0,
+      "is_bonus_product": false,
+      "is_discount_percent": false,
+      "is_wholesale": false,
+      "returned_count": 0,
+      "return_quantity": 0,
+      "same_price_discount": 0
+    },
+    {
+      "id": 11293359680,
+      "components": null,
+      "note": null,
+      "variation_id": "62ad14ad-6cc9-4e1d-95c0-d10c4d8446b6",
+      "added_to_cart_quantity": 1,
+      "quantity": 1,
+      "measure_group_id": 1536000744,
+      "note_product": "Hộp quà in chữ MeiT màu đỏ dùng để đóng hàng.Chất liệu bìa cứng",
+      "product_id": "79e81ccb-ec8c-44ae-8db5-867371a5d78c",
+      "variation_info": {
+        "name": "Hộp quà tặng MeiT màu đỏ",
+        "fields": [],
+        "detail": "",
+        "weight": 100,
+        "brand_id": null,
+        "category_ids": [],
+        "display_id": "H",
+        "retail_price": 0,
+        "last_imported_price": 0,
+        "avg_price": 0,
+        "exact_price": 0,
+        "images": [
+          "https://content.pancake.vn/2-2602/2026/2/6/f19a0e396a0d06eed9d755c915496f6728f5a271.png"
+        ],
+        "is_upsale_product": null,
+        "measure_info": {
+          "exchange_value": 1,
+          "measure_id": 1536000745
+        },
+        "retail_price_original": null,
+        "tax_rate": 0,
+        "barcode": "H",
+        "product_display_id": "H1-Hộp quà tặng MeiT màu đỏ"
+      },
+      "is_composite": false,
+      "assigning_seller": {
+        "id": "c581175b-ad4e-4def-9afb-6f16347e09f6",
+        "name": "Ngô Thị Phương Anh",
+        "email": "hung1008nq2007@gmail.com",
+        "phone_number": "0328336038",
+        "fb_id": "534709653405052",
+        "avatar_url": "https://statics.pancake.vn/web-media/91/68/aa/4d/2f5c95ba23476f5549910882e4e42530fdee6123b4a995e226e18e3e.svg"
+      },
+      "assigning_seller_id": "c581175b-ad4e-4def-9afb-6f16347e09f6",
+      "total_discount": 0,
+      "returning_quantity": 0,
+      "one_time_product": false,
+      "composite_item_id": null,
+      "discount_each_product": 0,
+      "exchange_count": 0,
+      "is_bonus_product": false,
+      "is_discount_percent": false,
+      "is_wholesale": false,
+      "returned_count": 0,
+      "return_quantity": 0,
+      "same_price_discount": 0
+    }
+  ],
+  "tax": 0,
+  "account_name": "MeiT Việt Nam",
+  "note_print": null,
+  "partner": {
+    "updated_at": "2026-06-29T15:08:09",
+    "cod": 0,
+    "paid_at": null,
+    "partner_id": 3,
+    "partner_status": "undeliverable",
+    "sort_code": "HUBHYN--HBHYYM",
+    "first_delivery_at": "2026-06-28T01:23:58",
+    "service_partner": {
+      "ORDER_SERVICE_ADD": null,
+      "SENDER_PHONE": "0965273316",
+      "MONEY_COLLECTION": 750000,
+      "CUS_ID": "17760333",
+      "RECEIVER_DISTRICT": "155",
+      "ORDER_VOUCHER": "",
+      "PRODUCT_LENGTH": 20,
+      "SENDER_PROVINCE": "1",
+      "PRODUCT_QUANTITY": 2,
+      "PRODUCT_NAME": "1 x ND8921 - Set Cotton Lụa MeiT City Rush/ Màu sắc:Đen, Size:S, 1 x Hộp quà tặng MeiT màu đỏ/ ",
+      "PRODUCT_WEIGHT": 1600,
+      "ORDER_NUMBER": "PKE90085112231413",
+      "SENDER_DISTRICT": "8",
+      "RECEIVER_FULLNAME": "Chinh Do",
+      "ORDER_SERVICE": "VSL7",
+      "RECEIVER_ADDRESS": "địa chỉ là số hà 29 thôn trai trang xã yên mỹ phố cầu lá ",
+      "PRODUCT_TYPE": "HH",
+      "LIST_ITEM": [
+        {
+          "PRODUCT_NAME": "ND8921 - Set Cotton Lụa MeiT City Rush,Màu sắc:Đen,Size:S",
+          "PRODUCT_PRICE": 750000,
+          "PRODUCT_QUANTITY": 1,
+          "PRODUCT_WEIGHT": 500
+        },
+        {
+          "PRODUCT_NAME": "Hộp quà tặng MeiT màu đỏ",
+          "PRODUCT_PRICE": 0,
+          "PRODUCT_QUANTITY": 1,
+          "PRODUCT_WEIGHT": 100
+        }
+      ],
+      "ENABLE_SORT_CODE": true,
+      "GROUPADDRESS_ID": 27906679,
+      "PRODUCT_PRICE": 750000,
+      "SENDER_FULLNAME": "KHO HÀNG MEIT PHÙ ĐỔNG",
+      "SENDER_WARD": "177",
+      "DELIVERY_DATE": "26/06/2026 15:23:00",
+      "PRODUCT_WIDTH": 14,
+      "SENDER_ADDRESS": "số 3 ngách 7 ngõ 121 Đường Ninh Hiệp",
+      "RECEIVER_PROVINCE": "13",
+      "ORDER_PAYMENT": 2,
+      "RECEIVER_WARD": "2378",
+      "RECEIVER_PHONE": "0961381555",
+      "partner_id": 3,
+      "PRODUCT_HEIGHT": 4,
+      "ORDER_NOTE": ""
+    },
+    "total_fee": 0,
+    "system_created": true,
+    "extend_code": "PKE90085112231413",
+    "picked_up_at": "2026-06-27T10:42:53",
+    "extend_update": [
+      {
+        "key": "16ffc45a-fea8-4459-8dd8-a74e0509b714",
+        "location": "HYN, HBHYYM, Bưu cục Yên Mỹ - HYN - Hưng Yên, 0324920111, 162901, THỊ TRẤN YÊN MỸ",
+        "note": "Khách từ chối nhận - Sai thông tin đơn hàng KH K LAY-K ĐÚNG QC - Bưu tá: Vũ Thi Dung - 0328996689",
+        "status": "Tồn - Thông báo chuyển hoàn bưu cục gốc",
+        "tracking_id": "PKE90085112231413",
+        "updated_at": "2026-06-29T15:08:09.953753",
+        "webhook_params": null
+      },
+      {
+        "key": "f7b70844-68d9-4d25-bb13-e1cacbb3a2d0",
+        "location": "HYN, HBHYYM, Bưu cục Yên Mỹ - HYN - Hưng Yên, 0324920111, 162901, THỊ TRẤN YÊN MỸ",
+        "note": null,
+        "status": "Giao bưu tá đi phát",
+        "tracking_id": "PKE90085112231413",
+        "updated_at": "2026-06-28T01:23:58.663256",
+        "webhook_params": null
+      },
+      {
+        "key": "2e878c19-33a3-42e6-8004-8cac5af723a6",
+        "location": "HYN, HBHYYM, Bưu cục Yên Mỹ - HYN - Hưng Yên, 0324920111, 162901, THỊ TRẤN YÊN MỸ",
+        "note": "Nhan tai - Bưu tá: Trần Quân Vũ - 0388988797",
+        "status": "Nhận bảng kê đến",
+        "tracking_id": "PKE90085112231413",
+        "updated_at": "2026-06-28T01:23:58.594874",
+        "webhook_params": null
+      },
+      {
+        "key": "1df4cc10-40b7-4910-b67f-d1132f730447",
+        "location": "HNI, TTKT5, Trung tâm khai thác 5 - Hà Nội, 0988512231, 142016, THỊ TRẤN QUANG MINH",
+        "note": "Van chuyen di - Bưu tá: Đồng Văn Toàn - 0865026237",
+        "status": "Đóng bảng kê đi",
+        "tracking_id": "PKE90085112231413",
+        "updated_at": "2026-06-27T16:20:34.566889",
+        "webhook_params": null
+      },
+      {
+        "key": "2819877b-55fd-49f8-8491-08050320cf2b",
+        "location": "HNI, NHP, Bưu cục Ninh Hiệp - HNI - Hà Nội, 0338809111, 131010, XÃ NINH HIỆP",
+        "note": "Van chuyen di - Bưu tá: Thạch Công Đạt - 0824982713",
+        "status": "Đóng bảng kê đi",
+        "tracking_id": "PKE90085112231413",
+        "updated_at": "2026-06-27T11:10:56.222435",
+        "webhook_params": null
+      },
+      {
+        "key": "2f07ac16-8c4c-4413-94cc-9b1f9f5c3cac",
+        "location": "HNI, NHP, Bưu cục Ninh Hiệp - HNI - Hà Nội, 0338809111, 131010, XÃ NINH HIỆP",
+        "note": "Nhập doanh thu - Bưu tá: Nguyễn Văn Hoàng Long - 0966576011",
+        "status": "Nhận từ bưu tá - Bưu cục gốc",
+        "tracking_id": "PKE90085112231413",
+        "updated_at": "2026-06-27T10:42:53.565516",
+        "webhook_params": null
+      },
+      {
+        "key": "888cf782-da1b-42db-a2e0-d26b117faeaa",
+        "location": "HNI, NHP, Bưu cục Ninh Hiệp - HNI - Hà Nội, 0338809111, 131010, XÃ NINH HIỆP",
+        "note": "Khách hàng đi vắng hẹn lấy sau. Thời gian hẹn: 26/06/2026 15:57:00",
+        "status": "Đơn hàng chờ xử lý",
+        "tracking_id": "PKE90085112231413",
+        "updated_at": "2026-06-26T08:58:34.170483",
+        "webhook_params": null
+      },
+      {
+        "key": "5f7de6b0-69ce-4245-a981-7eafc786ca97",
+        "location": "HNI, NHP, Bưu cục Ninh Hiệp - HNI - Hà Nội, 0338809111, 131010, XÃ NINH HIỆP",
+        "note": "Phân công bưu tá nhận hàng - Bưu tá: Nguyễn Văn Hoàng Long - 0966576011",
+        "status": "Giao cho Bưu tá đi nhận",
+        "tracking_id": "PKE90085112231413",
+        "updated_at": "2026-06-26T08:24:46.261436",
+        "webhook_params": null
+      }
+    ],
+    "order_number_vtp": "PKE1453657042",
+    "delivery_name": "Vũ Thi Dung",
+    "delivery_tel": "0328996689",
+    "custom_partner_id": null,
+    "printed_form": "https://digitalize.viettelpost.vn/DigitalizePrint/report.do?type=1&bill=QYmD6WIRZ-LE78lNemqeXzR3QVQzysRMv3Pm-2ccQUs=&showPostage=1",
+    "partner_name": "VTP",
+    "is_returned": null,
+    "is_ghn_v2": null,
+    "order_id_ghn": null,
+    "count_of_delivery": 1
+  },
+  "customer": {
+    "fb_id": "358136321033331_26577634641901734",
+    "is_discount_by_level": true,
+    "current_debts": 0,
+    "purchased_amount": 0,
+    "reward_point": 0,
+    "tags": [],
+    "last_order_at": null,
+    "is_block": false,
+    "shop_customer_addresses": [
+      {
+        "id": "2521ee5d-f590-45d3-974d-f416c9b4c16d",
+        "address": "địa chỉ là số hà 29 thôn trai trang xã yên mỹ phố cầu lá ",
+        "country_code": 84,
+        "commune_id": "1090401",
+        "district_id": "10904",
+        "full_address": "địa chỉ là số hà 29 thôn trai trang xã yên mỹ phố cầu lá , Thị trấn Yên Mỹ, Huyện Yên Mỹ, Hưng Yên",
+        "post_code": null,
+        "province_id": "109",
+        "phone_number": "0961381555",
+        "full_name": "Chinh Do"
+      }
+    ],
+    "currency": null,
+    "company_info": null,
+    "assigned_user_id": "c581175b-ad4e-4def-9afb-6f16347e09f6",
+    "referral_code": "EyvlB28E",
+    "emails": [],
+    "conversation_tags": null,
+    "level": null,
+    "conversation_link": "https://pancake.vn/358136321033331?customer_id=8ce324a4-dbb7-4e73-a231-1baf691c05f8",
+    "returned_order_count": 0,
+    "pages_customers": null,
+    "phone_numbers": [
+      "0961381555"
+    ],
+    "date_of_birth": null,
+    "total_amount_referred": null,
+    "active_levera_pay": false,
+    "notes": [],
+    "count_referrals": 0,
+    "order_sources": [
+      "-1"
+    ],
+    "used_reward_point": 0,
+    "username": null,
+    "list_voucher": [],
+    "inserted_at": "2026-06-26T08:23:46",
+    "identity_code": null,
+    "shop_id": 1021314908,
+    "creator_id": null,
+    "id": "1bb14d4e-8c44-40a0-a530-13a28173b89a",
+    "is_adjust_debts": null,
+    "name": "Chinh Do",
+    "updated_at": "2026-06-26T08:23:46",
+    "order_count": 1,
+    "customer_id": "8ce324a4-dbb7-4e73-a231-1baf691c05f8",
+    "user_block_id": null,
+    "gender": "female",
+    "succeed_order_count": 0
+  },
+  "partner_fee": 23099,
+  "note_image": [],
+  "charged_by_card": 0,
+  "returned_reason_name": null,
+  "time_assign_seller": null,
+  "tracking_link": "https://order.pke.gg/tracking?id=gJ9Yp%2Fbt75Iorp4eSmT8HFD%2BPxaZ0HLto0b%2FPnScQ81LL%2F2cKxvmeve220xJjflED6zBTJZGdfBgGFBam%2Fy%2Br6L1s9Y0",
+  "page": {
+    "id": "358136321033331",
+    "name": "MeiT Việt Nam",
+    "username": "MeiT.VietNam"
+  },
+  "botcake_info": null,
+  "items_length": 2,
+  "sub_status": 1,
+  "duplicated_ip": false,
+  "order_sources_name": "Facebook",
+  "customer_referral_code": null,
+  "system_id": 26208,
+  "marketer": null,
+  "bill_email": null,
+  "buyer_total_amount": null,
+  "customer_needs": [],
+  "total_discount": 0,
+  "last_editor": null,
+  "is_free_shipping": false,
+  "customer_pay_fee": true,
+  "shipping_address": {
+    "address": "địa chỉ là số hà 29 thôn trai trang xã yên mỹ phố cầu lá ",
+    "commnue_name": "Thị trấn Yên Mỹ",
+    "commune_code_sicepat": null,
+    "commune_id": "1090401",
+    "commune_name": "Thị trấn Yên Mỹ",
+    "country_code": "84",
+    "district_id": "10904",
+    "district_name": "Huyện Yên Mỹ",
+    "full_address": "địa chỉ là số hà 29 thôn trai trang xã yên mỹ phố cầu lá , Thị trấn Yên Mỹ, Huyện Yên Mỹ, Hưng Yên",
+    "full_name": "Chinh Do",
+    "marketplace_address": null,
+    "new_commune_id": "84_VN10591",
+    "new_full_address": "địa chỉ là số hà 29 thôn trai trang xã yên mỹ phố cầu lá , Xã Yên Mỹ, Hưng Yên",
+    "new_province_id": "84_VN105",
+    "phone_number": "0961381555",
+    "post_code": "",
+    "province_id": "109",
+    "province_name": "Hưng Yên",
+    "render_type": "old"
+  },
+  "charged_by_momo": 0,
+  "einvoices": [],
+  "assigning_care": null,
+  "page_id": "358136321033331",
+  "is_abandoned_order": false,
+  "assigning_seller_id": null,
+  "return_fee": false,
+  "status": 2,
+  "creator": {
+    "id": "c581175b-ad4e-4def-9afb-6f16347e09f6",
+    "name": "Ngô Thị Phương Anh",
+    "email": "hung1008nq2007@gmail.com",
+    "phone_number": "0328336038",
+    "fb_id": "534709653405052",
+    "avatar_url": "https://statics.pancake.vn/web-media/91/68/aa/4d/2f5c95ba23476f5549910882e4e42530fdee6123b4a995e226e18e3e.svg"
+  },
+  "money_to_collect": 750000,
+  "duplicated_phone": false,
+  "is_livestream": false,
+  "bill_full_name": "Chinh Do",
+  "marketplace_id": null,
+  "bank_payments": null,
+  "additional_info": {
+    "booking_sn": null,
+    "delivery_deadline": null,
+    "service_partner": null
+  },
+  "p_utm_content": null,
+  "p_utm_medium": null,
+  "is_live_shopping": false,
+  "received_at_shop": false,
+  "conversation_id": "358136321033331_26577634641901734",
+  "status_name": "shipped",
+  "post_id": "358136321033331_1443758547790535",
+  "order_sources": "-1",
+  "activated_combo_products": [],
+  "surcharge": 0,
+  "exchange_value": 0,
+  "pke_mkter": null,
+  "p_utm_source": null,
+  "returned_reason": 10061,
+  "order_currency": "VND",
+  "is_smc": false,
+  "inserted_at": "2026-06-26T08:23:46.513469",
+  "is_exchange_order": false,
+  "transfer_money": 0,
+  "partner_account": {
+    "name": null,
+    "user_name": "0367710579"
+  },
+  "total_price": 750000,
+  "shop_id": 1021314908,
+  "estimate_delivery_date": null,
+  "prepaid_by_point": {
+    "point": 0,
+    "money": 0
+  },
+  "id": 26208,
+  "account": "358136321033331",
+  "cod": 750000,
+  "updated_at": "2026-06-29T15:08:09.997314",
+  "warehouse_info": {
+    "name": "KHO HÀNG MEIT PHÙ ĐỔNG",
+    "address": "số 3 ngách 7 ngõ 121 Đường Ninh Hiệp",
+    "settings": {
+      "new_id_address": {
+        "new_commune_id": "84_VN101112",
+        "new_province_id": "84_VN101"
+      }
+    },
+    "postcode": null,
+    "commune_id": "1011925",
+    "district_id": "10119",
+    "full_address": "số 3 ngách 7 ngõ 121 Đường Ninh Hiệp, Xã Yên Thường, Huyện Gia Lâm, Hà Nội",
+    "province_id": "101",
+    "phone_number": "0965273316",
+    "custom_id": null,
+    "affiliate_id": null,
+    "ffm_id": null,
+    "has_snappy_service": false
+  },
+  "status_history": [
+    {
+      "name": "Ngô Thị Phương Anh",
+      "status": 0,
+      "editor": {
+        "id": "c581175b-ad4e-4def-9afb-6f16347e09f6",
+        "name": "Ngô Thị Phương Anh",
+        "email": "hung1008nq2007@gmail.com",
+        "phone_number": "0328336038",
+        "fb_id": "534709653405052",
+        "avatar_url": "https://statics.pancake.vn/web-media/91/68/aa/4d/2f5c95ba23476f5549910882e4e42530fdee6123b4a995e226e18e3e.svg"
+      },
+      "updated_at": "2026-06-26T08:23:46",
+      "avatar_url": "https://statics.pancake.vn/web-media/91/68/aa/4d/2f5c95ba23476f5549910882e4e42530fdee6123b4a995e226e18e3e.svg",
+      "editor_id": "c581175b-ad4e-4def-9afb-6f16347e09f6",
+      "old_status": null,
+      "editor_fb": "534709653405052"
+    },
+    {
+      "name": "Ngô Thị Phương Anh",
+      "status": 1,
+      "editor": {
+        "id": "c581175b-ad4e-4def-9afb-6f16347e09f6",
+        "name": "Ngô Thị Phương Anh",
+        "email": "hung1008nq2007@gmail.com",
+        "phone_number": "0328336038",
+        "fb_id": "534709653405052",
+        "avatar_url": "https://statics.pancake.vn/web-media/91/68/aa/4d/2f5c95ba23476f5549910882e4e42530fdee6123b4a995e226e18e3e.svg"
+      },
+      "updated_at": "2026-06-26T08:23:52",
+      "avatar_url": "https://statics.pancake.vn/web-media/91/68/aa/4d/2f5c95ba23476f5549910882e4e42530fdee6123b4a995e226e18e3e.svg",
+      "editor_id": "c581175b-ad4e-4def-9afb-6f16347e09f6",
+      "old_status": 0,
+      "editor_fb": "534709653405052"
+    },
+    {
+      "name": null,
+      "status": 2,
+      "editor": null,
+      "updated_at": "2026-06-27T10:42:53",
+      "avatar_url": null,
+      "editor_id": null,
+      "old_status": 1,
+      "editor_fb": null
+    }
+  ],
+  "total_quantity": 2,
+  "link": null,
+  "histories": [
+    {
+      "customer_pay_fee": {
+        "new": true,
+        "old": null
+      },
+      "editor_id": "c581175b-ad4e-4def-9afb-6f16347e09f6",
+      "extend_code": {
+        "new": "PKE1453657042",
+        "old": null
+      },
+      "partner_count": {
+        "new": [
+          {
+            "id": 3,
+            "value": 1
+          }
+        ],
+        "old": null
+      },
+      "partner_fee": {
+        "new": 23099,
+        "old": 0
+      },
+      "partner_id": {
+        "new": 3,
+        "old": null
+      },
+      "shop_partner_id": {
+        "new": 607503,
+        "old": null
+      },
+      "status": {
+        "new": 1,
+        "old": 0
+      },
+      "time_send_partner": {
+        "new": "2026-06-26T08:23:52",
+        "old": null
+      },
+      "updated_at": "2026-06-26T08:23:52",
+      "user_send_partner": {
+        "new": "c581175b-ad4e-4def-9afb-6f16347e09f6",
+        "old": null
+      }
+    },
+    {
+      "editor_id": null,
+      "partner_status": {
+        "new": "request_received",
+        "old": null
+      },
+      "updated_at": "2026-06-26T08:24:46"
+    },
+    {
+      "editor_id": null,
+      "partner_status": {
+        "new": "on_the_way",
+        "old": "request_received"
+      },
+      "status": {
+        "new": 2,
+        "old": 1
+      },
+      "tags": {
+        "new": [
+          {
+            "id": 17,
+            "name": "Đã lấy hàng"
+          }
+        ],
+        "old": []
+      },
+      "updated_at": "2026-06-27T10:42:53"
+    },
+    {
+      "editor_id": null,
+      "partner_status": {
+        "new": "out_for_delivery",
+        "old": "on_the_way"
+      },
+      "tags": {
+        "new": [
+          {
+            "id": 20,
+            "name": "Đang giao hàng"
+          }
+        ],
+        "old": [
+          {
+            "id": 17,
+            "name": "Đã lấy hàng"
+          }
+        ]
+      },
+      "updated_at": "2026-06-28T01:23:58"
+    },
+    {
+      "editor_id": null,
+      "partner_status": {
+        "new": "undeliverable",
+        "old": "out_for_delivery"
+      },
+      "returned_reason": {
+        "new": 10061,
+        "old": null
+      },
+      "sub_status": {
+        "new": 1,
+        "old": null
+      },
+      "tags": {
+        "new": [
+          {
+            "id": 1,
+            "name": "Giao không thành"
+          }
+        ],
+        "old": [
+          {
+            "id": 20,
+            "name": "Đang giao hàng"
+          }
+        ]
+      },
+      "updated_at": "2026-06-29T15:08:09"
+    }
+  ],
+  "time_send_partner": "2026-06-26T08:23:52",
+  "exchange_payment": 0,
+  "payment_purchase_histories": [],
+  "activated_promotion_advances": [],
+  "order_link": "https://pos.pages.fm/shop/1021314908/order?order_id=90085112231413",
+  "p_utm_id": null,
+  "levera_point": 0,
+  "warehouse_id": "9c1f8af5-9048-4a40-bea4-57f24dd7170c",
+  "type": "orders",
+  "charged_by_qrpay": 0,
+  "p_utm_campaign": null,
+  "event_type": "update",
+  "cash": 0,
+  "assigning_seller": null,
+  "p_utm_term": null,
+  "total_price_after_sub_discount": 750000
+}

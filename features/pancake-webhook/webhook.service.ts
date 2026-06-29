@@ -25,12 +25,14 @@ import {
   stripVariantSalesInternalIds,
   type VariantSalesAnalyticsResult,
 } from './lib/variantSalesAnalytics';
+import { computeEmployeeProductivity } from './lib/employeeProductivity';
 
 export {
   recordWebhookEventWithPersistence,
   recordSyntheticWebhookEventWithPersistence,
   shouldAutoRunFromWebhook,
   verifyWebhookSecret,
+  computeEmployeeProductivity,
 };
 
 export function getLegacyWebhookReceiverPath(): string {

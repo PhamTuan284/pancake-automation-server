@@ -15,14 +15,12 @@ const DEFAULT_INCOMING_SECRET_HEADER = 'x-webhook-secret';
 const DEFAULT_WEBHOOK_RECEIVER_PATH = '/webhooks/pancake';
 const DEFAULT_WEBHOOK_TYPES = [
   'orders',
-  'customers',
   'products',
   'variations_warehouses',
 ];
 
 export type PancakeWebhookType =
   | 'orders'
-  | 'customers'
   | 'products'
   | 'variations_warehouses'
   | string;
@@ -382,15 +380,12 @@ function detectWebhookKind(payload: unknown): string {
   if (
     explicitType === 'orders' ||
     explicitType === 'order' ||
-    explicitType === 'customers' ||
-    explicitType === 'customer' ||
     explicitType === 'products' ||
     explicitType === 'product' ||
     explicitType === 'variations_warehouses' ||
     explicitType === 'variation_warehouses'
   ) {
     if (explicitType === 'order') return 'orders';
-    if (explicitType === 'customer') return 'customers';
     if (explicitType === 'product') return 'products';
     if (explicitType === 'variation_warehouses') return 'variations_warehouses';
     return explicitType;
@@ -410,9 +405,6 @@ function detectWebhookKind(payload: unknown): string {
   }
   if ('customer_id' in obj || 'bill_full_name' in obj || 'order_sources' in obj) {
     return 'orders';
-  }
-  if ('customer_group_id' in obj || 'phone_numbers' in obj || 'total_order' in obj) {
-    return 'customers';
   }
   return 'unknown';
 }
