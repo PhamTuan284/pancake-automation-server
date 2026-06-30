@@ -181,6 +181,31 @@ const MOCK_ORDER: OrderPayload = {
   inserted_at: new Date().toISOString(),
 };
 
+// Dedup: one alert per order ID within 10 minutes
+const DEDUP_TTL_MS = 10 * 60 * 1000;
+const alertedOrders = new Map<string, number>(); // orderId → sentAt timestamp
+
+function isRecentlyAlerted(orderId: string): boolean {
+  const ts = alertedOrders.get(orderId);
+  if (ts === undefined) return false;
+  if (Date.now() - ts > DEDUP_TTL_MS) {
+    alertedOrders.delete(orderId);
+    return false;
+  }
+  return true;
+}
+
+function markAlerted(orderId: string): void {
+  alertedOrders.set(orderId, Date.now());
+  // Prune stale entries if the map grows large
+  if (alertedOrders.size > 500) {
+    const cutoff = Date.now() - DEDUP_TTL_MS;
+    for (const [id, ts] of alertedOrders) {
+      if (ts < cutoff) alertedOrders.delete(id);
+    }
+  }
+}
+
 export async function sendMockAbnormalOrderAlert(): Promise<{ ok: boolean; error?: string; text?: string }> {
   const config = await getAbnormalOrderConfig();
   const text = formatAbnormalOrderMessage(MOCK_ORDER, config.thresholdPct);
@@ -190,10 +215,16 @@ export async function sendMockAbnormalOrderAlert(): Promise<{ ok: boolean; error
 
 export async function checkAndSendAbnormalOrderAlert(payload: unknown): Promise<void> {
   const order = payload as OrderPayload;
+  const orderId = String(order.id ?? '').trim();
   const totalPrice = Number(order.total_price ?? 0);
   const afterDiscount = Number(order.total_price_after_sub_discount ?? 0);
 
   if (totalPrice <= 0) return;
+
+  if (orderId && isRecentlyAlerted(orderId)) {
+    console.log(`[abnormal-order] Bỏ qua trùng lặp id=${orderId}`);
+    return;
+  }
 
   const config = await getAbnormalOrderConfig();
   if (!config.enabled) return;
@@ -201,13 +232,15 @@ export async function checkAndSendAbnormalOrderAlert(payload: unknown): Promise<
   const pct = (afterDiscount / totalPrice) * 100;
   if (pct >= config.thresholdPct) return;
 
+  if (orderId) markAlerted(orderId);
+
   const text = formatAbnormalOrderMessage(order, config.thresholdPct);
   const result = await sendZaloText(text);
   if (!result.ok) {
     console.error(`[abnormal-order] Lỗi gửi cảnh báo Zalo: ${result.error ?? ''}`);
   } else {
     console.log(
-      `[abnormal-order] Cảnh báo đã gửi — id=${String(order.id ?? '?')} tỷ lệ=${pct.toFixed(1)}%`
+      `[abnormal-order] Cảnh báo đã gửi — id=${orderId || '?'} tỷ lệ=${pct.toFixed(1)}%`
     );
   }
 }

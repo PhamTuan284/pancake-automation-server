@@ -5,6 +5,7 @@ import type {
   StorefrontOrderItem,
 } from '../../common/models/storefrontOrderModel';
 import { postPancakeOpenApi } from '../pancake-webhook/lib/pancakeWebhook';
+import { sendZaloText } from '../zalo-bot/zalo-bot.service';
 import type { InvoiceShopKey } from '../pancake-einvoice/invoiceShops';
 
 export interface CreateOrderInput {
@@ -20,6 +21,52 @@ function generateOrderNumber(): string {
   const d = String(now.getDate()).padStart(2, '0');
   const rand = Math.floor(Math.random() * 9000) + 1000;
   return `MT${y}${m}${d}-${rand}`;
+}
+
+function formatVnd(amount: number): string {
+  return amount.toLocaleString('vi-VN') + 'đ';
+}
+
+function buildZaloOrderNotification(
+  orderNumber: string,
+  customer: StorefrontOrderCustomer,
+  items: StorefrontOrderItem[],
+  total: number
+): string {
+  const vnNow = new Date(Date.now() + 7 * 60 * 60 * 1000);
+  const time = `${String(vnNow.getUTCHours()).padStart(2, '0')}:${String(vnNow.getUTCMinutes()).padStart(2, '0')}`;
+  const date = `${String(vnNow.getUTCDate()).padStart(2, '0')}/${String(vnNow.getUTCMonth() + 1).padStart(2, '0')}/${vnNow.getUTCFullYear()}`;
+
+  const addressParts = [customer.address, customer.ward, customer.district, customer.city].filter(Boolean);
+  const address = addressParts.join(', ');
+
+  const itemLines = items
+    .map((item) => {
+      const variant = item.variantName ? ` (${item.variantName})` : '';
+      return `  • ${item.productName}${variant} × ${item.quantity} — ${formatVnd(item.price * item.quantity)}`;
+    })
+    .join('\n');
+
+  return [
+    `🛒 ĐƠN HÀNG MỚI TỪ WEBSITE`,
+    `━━━━━━━━━━━━━━━━━━━━━━━━`,
+    `📋 Mã đơn: ${orderNumber}`,
+    `🕐 ${time} ngày ${date}`,
+    ``,
+    `👤 ${customer.name}`,
+    `📞 ${customer.phone}`,
+    customer.email ? `📧 ${customer.email}` : '',
+    `📍 ${address}`,
+    customer.note ? `📝 Ghi chú: ${customer.note}` : '',
+    ``,
+    `🛍 Sản phẩm:`,
+    itemLines,
+    ``,
+    `💰 Tổng cộng: ${formatVnd(total)}`,
+    `💳 Thanh toán khi nhận hàng (COD)`,
+  ]
+    .filter((line) => line !== '')
+    .join('\n');
 }
 
 function buildPancakeOrderPayload(
@@ -103,6 +150,12 @@ export async function createStorefrontOrder(input: CreateOrderInput) {
     paymentMethod: 'cod',
     shopKey,
     pancakeOrderId,
+  });
+
+  // Notify via Zalo bot (non-fatal)
+  const zaloText = buildZaloOrderNotification(orderNumber, input.customer, input.items, total);
+  sendZaloText(zaloText).catch((err: unknown) => {
+    console.warn('[storefront order] Zalo notification failed (non-fatal):', err);
   });
 
   return order;
