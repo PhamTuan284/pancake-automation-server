@@ -5,6 +5,8 @@ import {
 import type { InvoiceShopKey } from '../pancake-einvoice/invoiceShops';
 import { connectMongo } from '../../common/mongo';
 import StorefrontOrder from '../../common/models/storefrontOrderModel';
+import SoldCountCache from '../../common/models/soldCountCacheModel';
+import { getStorefrontConfig } from '../../common/models/storefrontConfigModel';
 
 export type StorefrontCategory = {
   id: string;
@@ -172,7 +174,7 @@ function parseEmbeddedVariations(
       return {
         id: varId,
         name: String(v.display_id ?? v.name ?? ''),
-        price: Number(v.retail_price ?? v.price ?? basePrice),
+        price: Number(v.retail_price ?? v.price ?? basePrice) || basePrice,
         stock,
         images: varImages,
         fields,
@@ -284,6 +286,7 @@ function rawProductToStorefront(
 
 let productCache: { data: StorefrontProduct[]; fetchedAt: number } | null = null;
 const CACHE_TTL_MS = 5 * 60 * 1000;
+const SOLD_COUNT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 1 week
 
 function getOrderItems(order: Record<string, unknown>): Record<string, unknown>[] {
   for (const key of ['order_details', 'items', 'line_items', 'details', 'products']) {
@@ -292,52 +295,72 @@ function getOrderItems(order: Record<string, unknown>): Record<string, unknown>[
   return [];
 }
 
-async function fetchPancakeSalesMap(shopKey: InvoiceShopKey): Promise<Map<string, number>> {
-  const salesMap = new Map<string, number>();
+async function recalculateSoldCounts(shopKey: InvoiceShopKey): Promise<Map<string, number>> {
+  const combined = new Map<string, number>();
+
+  // Pancake order history (last 180 days, up to 600 orders)
   try {
-    // Fetch recent orders — limit to ~600 records (12 pages × 50) to keep it fast
     const fromDate = new Date();
     fromDate.setDate(fromDate.getDate() - 180);
-    const query = new URLSearchParams({
-      from_date: fromDate.toISOString().split('T')[0],
-    });
-    const orders = await fetchPancakeOpenApiPaginated('/orders', query, shopKey, {
-      pageSize: 50,
-      maxPages: 12,
-    });
-
+    const query = new URLSearchParams({ from_date: fromDate.toISOString().split('T')[0] });
+    const orders = await fetchPancakeOpenApiPaginated('/orders', query, shopKey, { pageSize: 50, maxPages: 12 });
     for (const order of orders) {
       for (const item of getOrderItems(order)) {
         const productId = String(
           item.product_id ??
           (item.product as Record<string, unknown> | undefined)?.id ??
-          item.item_id ??
-          ''
+          item.item_id ?? ''
         ).trim();
         const qty = Math.max(0, Number(item.quantity ?? item.qty ?? item.amount ?? 1));
-        if (productId && qty > 0) {
-          salesMap.set(productId, (salesMap.get(productId) ?? 0) + qty);
-        }
+        if (productId && qty > 0) combined.set(productId, (combined.get(productId) ?? 0) + qty);
       }
     }
-  } catch {
-    // non-fatal
-  }
-  return salesMap;
-}
+  } catch { /* non-fatal */ }
 
-async function fetchMongoSalesMap(): Promise<Map<string, number>> {
+  // MongoDB storefront orders
   try {
-    await connectMongo();
     const rows = await StorefrontOrder.aggregate<{ _id: string; totalSold: number }>([
       { $unwind: '$items' },
       { $group: { _id: '$items.productId', totalSold: { $sum: '$items.quantity' } } },
     ]);
-    return new Map(rows.map((r) => [r._id, r.totalSold]));
+    for (const r of rows) {
+      combined.set(r._id, (combined.get(r._id) ?? 0) + r.totalSold);
+    }
+  } catch { /* non-fatal */ }
+
+  return combined;
+}
+
+async function getSoldCountMap(shopKey: InvoiceShopKey): Promise<Map<string, number>> {
+  try {
+    await connectMongo();
+    const cached = await SoldCountCache.findOne({ shopKey });
+    const isStale = !cached || Date.now() - cached.calculatedAt.getTime() > SOLD_COUNT_TTL_MS;
+
+    if (!isStale && cached) {
+      return new Map(Object.entries(cached.counts as Record<string, number>));
+    }
+
+    // Stale or missing — recalculate and persist
+    const counts = await recalculateSoldCounts(shopKey);
+    const countsObj = Object.fromEntries(counts);
+    await SoldCountCache.findOneAndUpdate(
+      { shopKey },
+      { counts: countsObj, calculatedAt: new Date() },
+      { upsert: true }
+    );
+    console.log(`[storefront] sold counts recalculated for ${shopKey}: ${counts.size} products`);
+    return counts;
   } catch {
     return new Map();
   }
 }
+
+const CATEGORY_ORDER: Record<string, number> = {
+  'quan-ao': 0,
+  'tui-xach': 1,
+  'khan-mem': 2,
+};
 
 async function fetchAllProducts(shopKey: InvoiceShopKey): Promise<StorefrontProduct[]> {
   const now = Date.now();
@@ -345,14 +368,12 @@ async function fetchAllProducts(shopKey: InvoiceShopKey): Promise<StorefrontProd
     return productCache.data;
   }
 
-  const [rawProducts, rawVariationsStock, pancakeSales, mongoSales] = await Promise.all([
+  const [rawProducts, rawVariationsStock, soldCounts] = await Promise.all([
     fetchPancakeOpenApiPaginated('/products', undefined, shopKey).catch(() => [] as Record<string, unknown>[]),
     fetchPancakeOpenApiPaginated('/products/variations', undefined, shopKey).catch(() => [] as Record<string, unknown>[]),
-    fetchPancakeSalesMap(shopKey),
-    fetchMongoSalesMap(),
+    getSoldCountMap(shopKey),
   ]);
 
-  // Build variation ID -> stock quantity map
   const stockMap = new Map<string, number>();
   for (const v of rawVariationsStock) {
     const varId = String(v.variation_id ?? v.id ?? '');
@@ -366,13 +387,31 @@ async function fetchAllProducts(shopKey: InvoiceShopKey): Promise<StorefrontProd
     .filter((p) => p.inStock)
     .filter((p) => p.price > 0);
 
-  // Combine all sales sources: Pancake field + Pancake orders + MongoDB orders
   for (const p of products) {
-    p.soldCount += (pancakeSales.get(p.id) ?? 0) + (mongoSales.get(p.id) ?? 0);
+    p.soldCount += soldCounts.get(p.id) ?? 0;
   }
-  products.sort((a, b) => b.soldCount - a.soldCount);
 
-  console.log(`[storefront] cached ${products.length} products, top5: ${products.slice(0, 5).map(p => `${p.name}(${p.soldCount})`).join(', ')}`);
+  products.sort((a, b) => {
+    const catDiff = (CATEGORY_ORDER[a.subcategoryId] ?? 1) - (CATEGORY_ORDER[b.subcategoryId] ?? 1);
+    return catDiff !== 0 ? catDiff : b.soldCount - a.soldCount;
+  });
+
+  // Apply admin image overrides; fall back to Pancake images when no override is set
+  try {
+    const config = await getStorefrontConfig();
+    const productOverrides = new Map(config.productImageOverrides.map((o) => [o.id, o.imageUrl]));
+    const variantOverrides = new Map(config.variantImageOverrides.map((o) => [o.id, o.imageUrl]));
+
+    for (const p of products) {
+      const override = productOverrides.get(p.id);
+      if (override) p.images = [override];
+
+      for (const v of p.variants) {
+        const varOverride = variantOverrides.get(v.id);
+        if (varOverride) v.images = [varOverride];
+      }
+    }
+  } catch { /* non-fatal — show Pancake images if config unavailable */ }
 
   productCache = { data: products, fetchedAt: now };
   return products;

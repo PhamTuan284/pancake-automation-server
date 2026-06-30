@@ -10,10 +10,19 @@ export type CategoryBannerConfig = {
   imageUrl: string;
 };
 
+export type ImageOverride = {
+  id: string;
+  imageUrl: string;
+};
+
 export type StorefrontConfigDoc = {
   heroBanner: HeroBannerConfig;
   categoryBanners: CategoryBannerConfig[];
+  productImageOverrides: ImageOverride[];
+  variantImageOverrides: ImageOverride[];
 };
+
+const imageOverrideSchema = { id: { type: String }, imageUrl: { type: String } };
 
 const storefrontConfigSchema = new mongoose.Schema<StorefrontConfigDoc>(
   {
@@ -21,12 +30,9 @@ const storefrontConfigSchema = new mongoose.Schema<StorefrontConfigDoc>(
       videoUrl: { type: String, default: '' },
       posterUrl: { type: String, default: '' },
     },
-    categoryBanners: [
-      {
-        id: { type: String },
-        imageUrl: { type: String },
-      },
-    ],
+    categoryBanners: [imageOverrideSchema],
+    productImageOverrides: [imageOverrideSchema],
+    variantImageOverrides: [imageOverrideSchema],
   },
   { collection: 'storefront_config' }
 );
@@ -42,6 +48,8 @@ export async function getStorefrontConfig(): Promise<StorefrontConfigDoc> {
     config = await StorefrontConfigModel.create({
       heroBanner: { videoUrl: '', posterUrl: '' },
       categoryBanners: [],
+      productImageOverrides: [],
+      variantImageOverrides: [],
     });
   }
   return config;

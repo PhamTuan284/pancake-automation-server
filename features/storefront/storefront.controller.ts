@@ -135,6 +135,8 @@ export async function updateAdminStorefrontConfig(req: Request, res: Response): 
     const body = req.body as {
       heroBanner?: { videoUrl?: string; posterUrl?: string };
       categoryBanners?: { id: string; imageUrl: string }[];
+      productImageOverrides?: { id: string; imageUrl: string }[];
+      variantImageOverrides?: { id: string; imageUrl: string }[];
     };
 
     let config = await StorefrontConfigModel.findOne();
@@ -142,6 +144,8 @@ export async function updateAdminStorefrontConfig(req: Request, res: Response): 
       config = await StorefrontConfigModel.create({
         heroBanner: { videoUrl: '', posterUrl: '' },
         categoryBanners: [],
+        productImageOverrides: [],
+        variantImageOverrides: [],
       });
     }
 
@@ -149,14 +153,32 @@ export async function updateAdminStorefrontConfig(req: Request, res: Response): 
       if (typeof body.heroBanner.videoUrl === 'string') config.heroBanner.videoUrl = body.heroBanner.videoUrl.trim();
       if (typeof body.heroBanner.posterUrl === 'string') config.heroBanner.posterUrl = body.heroBanner.posterUrl.trim();
     }
-    if (Array.isArray(body.categoryBanners)) {
-      config.categoryBanners = body.categoryBanners
+
+    const sanitizeOverrides = (arr: { id: string; imageUrl: string }[]) =>
+      arr
         .filter((b) => typeof b.id === 'string' && typeof b.imageUrl === 'string')
         .map((b) => ({ id: b.id.trim(), imageUrl: b.imageUrl.trim() }));
+
+    if (Array.isArray(body.categoryBanners)) {
+      config.categoryBanners = sanitizeOverrides(body.categoryBanners);
+    }
+    if (Array.isArray(body.productImageOverrides)) {
+      config.productImageOverrides = sanitizeOverrides(body.productImageOverrides).filter((b) => b.imageUrl !== '');
+    }
+    if (Array.isArray(body.variantImageOverrides)) {
+      config.variantImageOverrides = sanitizeOverrides(body.variantImageOverrides).filter((b) => b.imageUrl !== '');
     }
 
     await config.save();
-    res.json({ heroBanner: config.heroBanner, categoryBanners: config.categoryBanners });
+    // Invalidate product cache so overrides apply on next fetch
+    invalidateProductCache();
+
+    res.json({
+      heroBanner: config.heroBanner,
+      categoryBanners: config.categoryBanners,
+      productImageOverrides: config.productImageOverrides,
+      variantImageOverrides: config.variantImageOverrides,
+    });
   } catch (err) {
     console.error('[storefront] updateAdminStorefrontConfig error:', err);
     res.status(500).json({ error: 'Lỗi server.' });
