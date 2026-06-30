@@ -3,6 +3,8 @@ import {
   fetchPancakeOpenApiPaginated,
 } from '../pancake-webhook/lib/pancakeWebhook';
 import type { InvoiceShopKey } from '../pancake-einvoice/invoiceShops';
+import { connectMongo } from '../../common/mongo';
+import StorefrontOrder from '../../common/models/storefrontOrderModel';
 
 export type StorefrontCategory = {
   id: string;
@@ -45,6 +47,7 @@ export type StorefrontProduct = {
   tags: string[];
   inStock: boolean;
   totalStock: number;
+  soldCount: number;
   attributes: StorefrontAttribute[];
   variants: StorefrontVariant[];
   description?: string;
@@ -113,7 +116,10 @@ function slugify(text: string): string {
     .replace(/\s+/g, '-');
 }
 
-function classifyProduct(name: string, categoryName?: string): { categoryId: string; subcategoryId: string } | null {
+const FALLBACK_CATEGORY_ID = STOREFRONT_CATEGORIES[0].id;
+const FALLBACK_SUBCATEGORY_ID = STOREFRONT_CATEGORIES[0].subcategories[0].id;
+
+function classifyProduct(name: string, categoryName?: string): { categoryId: string; subcategoryId: string } {
   const searchText = `${name} ${categoryName ?? ''}`.toLowerCase();
 
   for (const cat of STOREFRONT_CATEGORIES) {
@@ -125,7 +131,8 @@ function classifyProduct(name: string, categoryName?: string): { categoryId: str
       }
     }
   }
-  return null;
+  // Don't drop unrecognised products — put them in the first category so they still appear
+  return { categoryId: FALLBACK_CATEGORY_ID, subcategoryId: FALLBACK_SUBCATEGORY_ID };
 }
 
 function parseProductAttributes(raw: unknown): StorefrontAttribute[] {
@@ -206,8 +213,7 @@ function extractImageUrls(raw: unknown): string[] {
 
 function rawProductToStorefront(
   product: Record<string, unknown>,
-  stockMap: Map<string, number>,
-  hasStockData: boolean
+  stockMap: Map<string, number>
 ): StorefrontProduct | null {
   const id = String(product.id ?? '').trim();
   const name = String(product.name ?? '').trim();
@@ -220,7 +226,6 @@ function rawProductToStorefront(
   );
 
   const classification = classifyProduct(name, categoryName);
-  if (!classification) return null;
 
   const basePrice = Number(
     product.retail_price ?? product.price ?? product.base_price ?? product.sale_price ?? 0
@@ -244,10 +249,19 @@ function rawProductToStorefront(
   const variantPrices = variants.map((v) => v.price).filter((p) => p > 0);
   const effectivePrice = basePrice > 0 ? basePrice : (variantPrices.length > 0 ? Math.min(...variantPrices) : 0);
 
+  // Only trust stock = 0 if at least one of THIS product's variants appears in the warehouse data.
+  // If none of them are in the stockMap, the warehouse endpoint simply didn't include this product
+  // and we should assume it's available rather than hiding it.
+  const thisProductHasStockData = variants.some((v) => stockMap.has(v.id));
+  const inStock = !thisProductHasStockData || totalStock > 0;
+
   const tags: string[] = [];
   if (Array.isArray(product.tags)) {
     tags.push(...product.tags.map(String));
   }
+
+  // Pancake may expose sold counts under these fields
+  const pancakeSold = Number(product.total_sold ?? product.sold_count ?? product.number_sold ?? product.sold ?? 0);
 
   return {
     id,
@@ -259,8 +273,9 @@ function rawProductToStorefront(
     categoryId: classification.categoryId,
     subcategoryId: classification.subcategoryId,
     tags,
-    inStock: !hasStockData || totalStock > 0,
+    inStock,
     totalStock,
+    soldCount: pancakeSold,
     attributes,
     variants,
     description: String(product.description ?? product.content ?? product.note_product ?? '').trim() || undefined,
@@ -268,7 +283,61 @@ function rawProductToStorefront(
 }
 
 let productCache: { data: StorefrontProduct[]; fetchedAt: number } | null = null;
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL_MS = 5 * 60 * 1000;
+
+function getOrderItems(order: Record<string, unknown>): Record<string, unknown>[] {
+  for (const key of ['order_details', 'items', 'line_items', 'details', 'products']) {
+    if (Array.isArray(order[key])) return order[key] as Record<string, unknown>[];
+  }
+  return [];
+}
+
+async function fetchPancakeSalesMap(shopKey: InvoiceShopKey): Promise<Map<string, number>> {
+  const salesMap = new Map<string, number>();
+  try {
+    // Fetch recent orders — limit to ~600 records (12 pages × 50) to keep it fast
+    const fromDate = new Date();
+    fromDate.setDate(fromDate.getDate() - 180);
+    const query = new URLSearchParams({
+      from_date: fromDate.toISOString().split('T')[0],
+    });
+    const orders = await fetchPancakeOpenApiPaginated('/orders', query, shopKey, {
+      pageSize: 50,
+      maxPages: 12,
+    });
+
+    for (const order of orders) {
+      for (const item of getOrderItems(order)) {
+        const productId = String(
+          item.product_id ??
+          (item.product as Record<string, unknown> | undefined)?.id ??
+          item.item_id ??
+          ''
+        ).trim();
+        const qty = Math.max(0, Number(item.quantity ?? item.qty ?? item.amount ?? 1));
+        if (productId && qty > 0) {
+          salesMap.set(productId, (salesMap.get(productId) ?? 0) + qty);
+        }
+      }
+    }
+  } catch {
+    // non-fatal
+  }
+  return salesMap;
+}
+
+async function fetchMongoSalesMap(): Promise<Map<string, number>> {
+  try {
+    await connectMongo();
+    const rows = await StorefrontOrder.aggregate<{ _id: string; totalSold: number }>([
+      { $unwind: '$items' },
+      { $group: { _id: '$items.productId', totalSold: { $sum: '$items.quantity' } } },
+    ]);
+    return new Map(rows.map((r) => [r._id, r.totalSold]));
+  } catch {
+    return new Map();
+  }
+}
 
 async function fetchAllProducts(shopKey: InvoiceShopKey): Promise<StorefrontProduct[]> {
   const now = Date.now();
@@ -276,13 +345,14 @@ async function fetchAllProducts(shopKey: InvoiceShopKey): Promise<StorefrontProd
     return productCache.data;
   }
 
-  const [rawProducts, rawVariationsStock] = await Promise.all([
+  const [rawProducts, rawVariationsStock, pancakeSales, mongoSales] = await Promise.all([
     fetchPancakeOpenApiPaginated('/products', undefined, shopKey).catch(() => [] as Record<string, unknown>[]),
-    // Still fetch /products/variations for warehouse stock quantities
     fetchPancakeOpenApiPaginated('/products/variations', undefined, shopKey).catch(() => [] as Record<string, unknown>[]),
+    fetchPancakeSalesMap(shopKey),
+    fetchMongoSalesMap(),
   ]);
 
-  // Build variation ID -> stock quantity map from warehouse endpoint
+  // Build variation ID -> stock quantity map
   const stockMap = new Map<string, number>();
   for (const v of rawVariationsStock) {
     const varId = String(v.variation_id ?? v.id ?? '');
@@ -290,13 +360,19 @@ async function fetchAllProducts(shopKey: InvoiceShopKey): Promise<StorefrontProd
     if (varId) stockMap.set(varId, qty);
   }
 
-  // Only trust stock data when the warehouse endpoint returned actual quantities
-  const hasStockData = [...stockMap.values()].some((qty) => qty > 0);
-
   const products = rawProducts
-    .map((p) => rawProductToStorefront(p, stockMap, hasStockData))
+    .map((p) => rawProductToStorefront(p, stockMap))
     .filter((p): p is StorefrontProduct => p !== null)
-    .filter((p) => p.inStock);
+    .filter((p) => p.inStock)
+    .filter((p) => p.price > 0);
+
+  // Combine all sales sources: Pancake field + Pancake orders + MongoDB orders
+  for (const p of products) {
+    p.soldCount += (pancakeSales.get(p.id) ?? 0) + (mongoSales.get(p.id) ?? 0);
+  }
+  products.sort((a, b) => b.soldCount - a.soldCount);
+
+  console.log(`[storefront] cached ${products.length} products, top5: ${products.slice(0, 5).map(p => `${p.name}(${p.soldCount})`).join(', ')}`);
 
   productCache = { data: products, fetchedAt: now };
   return products;

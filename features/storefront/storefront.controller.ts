@@ -7,6 +7,11 @@ import {
 } from './storefront.service';
 import { createStorefrontOrder, getStorefrontOrderById } from './storefront.order.service';
 import { resolveInvoiceShopKey } from '../pancake-einvoice/invoiceShops';
+import {
+  getStorefrontConfig,
+  StorefrontConfigModel,
+} from '../../common/models/storefrontConfigModel';
+import { ensureMongoConnected } from '../../common/mongo';
 
 function resolveShopKey(req: Request) {
   const raw = String(req.query.shop ?? req.query.shopKey ?? 'meit').toLowerCase();
@@ -108,4 +113,52 @@ export async function getOrder(req: Request, res: Response): Promise<void> {
 export function postInvalidateCache(_req: Request, res: Response): void {
   invalidateProductCache();
   res.json({ ok: true, message: 'Product cache cleared' });
+}
+
+export async function getAdminStorefrontConfig(_req: Request, res: Response): Promise<void> {
+  try {
+    await ensureMongoConnected();
+    const config = await getStorefrontConfig();
+    res.json({
+      heroBanner: config.heroBanner,
+      categoryBanners: config.categoryBanners,
+    });
+  } catch (err) {
+    console.error('[storefront] getAdminStorefrontConfig error:', err);
+    res.status(500).json({ error: 'Lỗi server.' });
+  }
+}
+
+export async function updateAdminStorefrontConfig(req: Request, res: Response): Promise<void> {
+  try {
+    await ensureMongoConnected();
+    const body = req.body as {
+      heroBanner?: { videoUrl?: string; posterUrl?: string };
+      categoryBanners?: { id: string; imageUrl: string }[];
+    };
+
+    let config = await StorefrontConfigModel.findOne();
+    if (!config) {
+      config = await StorefrontConfigModel.create({
+        heroBanner: { videoUrl: '', posterUrl: '' },
+        categoryBanners: [],
+      });
+    }
+
+    if (body.heroBanner) {
+      if (typeof body.heroBanner.videoUrl === 'string') config.heroBanner.videoUrl = body.heroBanner.videoUrl.trim();
+      if (typeof body.heroBanner.posterUrl === 'string') config.heroBanner.posterUrl = body.heroBanner.posterUrl.trim();
+    }
+    if (Array.isArray(body.categoryBanners)) {
+      config.categoryBanners = body.categoryBanners
+        .filter((b) => typeof b.id === 'string' && typeof b.imageUrl === 'string')
+        .map((b) => ({ id: b.id.trim(), imageUrl: b.imageUrl.trim() }));
+    }
+
+    await config.save();
+    res.json({ heroBanner: config.heroBanner, categoryBanners: config.categoryBanners });
+  } catch (err) {
+    console.error('[storefront] updateAdminStorefrontConfig error:', err);
+    res.status(500).json({ error: 'Lỗi server.' });
+  }
 }

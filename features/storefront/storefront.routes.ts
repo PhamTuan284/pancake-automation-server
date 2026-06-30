@@ -27,3 +27,11 @@ storefrontRouter.get('/api/store/orders/:id', (req, res) => {
 storefrontRouter.post('/api/store/cache/invalidate', requireAdmin, (req, res) => {
   storefrontController.postInvalidateCache(req, res);
 });
+
+storefrontRouter.get('/api/admin/storefront-config', (req, res) => {
+  void storefrontController.getAdminStorefrontConfig(req, res);
+});
+
+storefrontRouter.put('/api/admin/storefront-config', requireAdmin, (req, res) => {
+  void storefrontController.updateAdminStorefrontConfig(req, res);
+});
