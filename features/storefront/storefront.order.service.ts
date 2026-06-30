@@ -33,19 +33,29 @@ function buildPancakeOrderPayload(
     ? `${customer.address}, ${shippingAddress}`
     : shippingAddress;
 
+  // Pancake Open API field names (confirmed from API response schema)
   return {
-    order: {
-      bill_full_name: customer.name,
-      bill_phone: customer.phone,
-      bill_address: fullAddress,
-      notes: customer.note ?? '',
-      payment_method: 'cod',
-      order_details: items.map((item) => ({
-        variation_id: item.variantId ?? item.productId,
-        quantity: item.quantity,
-        price: item.price,
-      })),
-    },
+    bill_full_name: customer.name,
+    bill_phone_number: customer.phone,
+    bill_email: customer.email ?? null,
+    shipping_address: fullAddress,
+    note: customer.note ?? '',
+    payment_method: 'cod',
+    order_details: items.map((item) => ({
+      product_id: item.productId,
+      variation_id: item.variantId ?? item.productId,
+      quantity: item.quantity,
+      price: item.price,
+      retail_price: item.price,
+    })),
+    // Some Pancake API versions use "items" instead of "order_details"
+    items: items.map((item) => ({
+      product_id: item.productId,
+      variation_id: item.variantId ?? item.productId,
+      quantity: item.quantity,
+      price: item.price,
+      retail_price: item.price,
+    })),
   };
 }
 
@@ -63,11 +73,13 @@ export async function createStorefrontOrder(input: CreateOrderInput) {
   let pancakeOrderId: string | undefined;
   try {
     const pancakePayload = buildPancakeOrderPayload(input.customer, input.items);
+    console.log('[storefront order] Sending to Pancake:', JSON.stringify(pancakePayload, null, 2));
     const pancakeResponse = postPancakeOpenApi('/orders', pancakePayload, shopKey) as Promise<Record<string, unknown>>;
     const result = await pancakeResponse.catch((err: unknown) => {
       console.warn('[storefront order] Pancake order push failed (non-fatal):', err);
       return null;
     });
+    console.log('[storefront order] Pancake response:', JSON.stringify(result, null, 2));
     if (result && typeof result === 'object') {
       const orderId =
         (result as Record<string, unknown>).id ??

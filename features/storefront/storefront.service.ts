@@ -152,7 +152,8 @@ function parseProductAttributes(raw: unknown): StorefrontAttribute[] {
 function parseEmbeddedVariations(
   rawVariations: unknown,
   stockMap: Map<string, number>,
-  basePrice: number
+  basePrice: number,
+  attributes: StorefrontAttribute[]
 ): StorefrontVariant[] {
   if (!Array.isArray(rawVariations)) return [];
   return rawVariations
@@ -161,14 +162,49 @@ function parseEmbeddedVariations(
         v !== null && typeof v === 'object' && !v.is_removed && !v.is_hidden
     )
     .map((v) => {
-      const varId = String(v.id ?? '');
-      const fields: StorefrontVariantField[] = Array.isArray(v.fields)
-        ? (v.fields as Record<string, unknown>[]).map((f) => ({
-            name: String(f.name ?? ''),
-            value: String(f.value ?? ''),
-            keyValue: String(f.keyValue ?? ''),
-          }))
+      const varId = String(v.id ?? '').trim();
+
+      // Pancake may put field data under several different keys across API versions
+      const rawFields = v.fields ?? v.attributes ?? v.options ?? v.variation_options;
+      let fields: StorefrontVariantField[] = Array.isArray(rawFields)
+        ? (rawFields as Record<string, unknown>[])
+            .map((f) => {
+              const attr = f.attribute as Record<string, unknown> | undefined;
+              return {
+                name: String(f.name ?? f.attribute_name ?? f.key ?? attr?.name ?? ''),
+                value: String(f.value ?? f.option_value ?? f.option_name ?? ''),
+                keyValue: String(f.keyValue ?? f.key_value ?? ''),
+              };
+            })
+            .filter((f) => f.name && f.value)
         : [];
+
+      // Fallback: derive fields from the variation's display name (e.g. "Đen / CR 8cm")
+      // by matching each part against the product's attribute value lists.
+      if (fields.length === 0 && attributes.length > 0) {
+        const varName = String(v.display_id ?? v.name ?? '');
+        const parts = varName.split(/\s*[/|]\s*/).map((p) => p.trim()).filter(Boolean);
+
+        // First try value-matching (order-independent)
+        const usedAttrs = new Set<string>();
+        for (const part of parts) {
+          for (const attr of attributes) {
+            if (!usedAttrs.has(attr.name) && attr.values.includes(part)) {
+              fields.push({ name: attr.name, value: part, keyValue: '' });
+              usedAttrs.add(attr.name);
+              break;
+            }
+          }
+        }
+
+        // If value-matching didn't work, assign positionally (parts in attribute order)
+        if (fields.length === 0 && parts.length === attributes.length) {
+          parts.forEach((val, i) => {
+            fields.push({ name: attributes[i].name, value: val, keyValue: '' });
+          });
+        }
+      }
+
       const varImages = extractImageUrls(v.images ?? v.image ?? v.image_url ?? v.cover_url);
       const stock = stockMap.get(varId) ?? Number(v.remain_quantity ?? v.quantity ?? 0);
       return {
@@ -239,7 +275,7 @@ function rawProductToStorefront(
   const attributes = parseProductAttributes(product.product_attributes);
 
   // Parse embedded variations using fields[] for attribute structure
-  const variants = parseEmbeddedVariations(product.variations, stockMap, basePrice);
+  const variants = parseEmbeddedVariations(product.variations, stockMap, basePrice, attributes);
 
   // Collect product-level images, then merge unique variant images
   const rootImages = [product.images, product.image, product.image_url, product.cover, product.cover_url, product.thumbnail, product.thumbnail_url];
