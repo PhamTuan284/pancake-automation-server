@@ -11,6 +11,21 @@ import type { InvoiceShopKey } from '../pancake-einvoice/invoiceShops';
 import { generateStockImageServer, stitchIntoCompositeServer } from './stockImageServer';
 
 const TEMP_IMG_DIR = path.join(process.cwd(), 'public', 'temp-images');
+const TEMP_IMG_MAX_AGE_MS = 30 * 24 * 60 * 60_000; // 30 days
+
+function cleanOldTempImages(): void {
+  try {
+    if (!fs.existsSync(TEMP_IMG_DIR)) return;
+    const now = Date.now();
+    for (const name of fs.readdirSync(TEMP_IMG_DIR)) {
+      const fp = path.join(TEMP_IMG_DIR, name);
+      try {
+        const stat = fs.statSync(fp);
+        if (now - stat.mtimeMs > TEMP_IMG_MAX_AGE_MS) fs.unlinkSync(fp);
+      } catch { /* ignore per-file errors */ }
+    }
+  } catch { /* ignore */ }
+}
 
 export type ZaloBotConfig = {
   botConfigured: boolean;
@@ -270,9 +285,6 @@ export async function sendZaloPhotoBase64(
     const imageUrl = `${publicBaseUrl}/temp-images/${filename}`;
     console.log(`[zalo-bot] sendPhoto via URL: ${imageUrl}`);
 
-    // Clean up after 5 minutes
-    setTimeout(() => { try { fs.unlinkSync(filepath); } catch { /* ignore */ } }, 5 * 60_000);
-
     const result = await sendZaloPhoto(botToken, chatId, imageUrl, caption);
     console.log(`[zalo-bot] sendPhoto result: ok=${String(result.ok)} error=${result.error ?? ''}`);
     addLog({ sentAt: new Date().toISOString(), kind: 'report', success: result.ok, error: result.error, chatId, preview: caption.slice(0, 100) });
@@ -317,10 +329,6 @@ export async function sendProductStockMultiToZalo(
       console.log(`[zalo-bot] sendPhoto result: ok=${String(lastResult.ok)} error=${lastResult.error ?? ''}`);
       if (!lastResult.ok) break;
     }
-
-    setTimeout(() => {
-      for (const fp of filepaths) { try { fs.unlinkSync(fp); } catch { /* ignore */ } }
-    }, 5 * 60_000);
 
     addLog({
       sentAt: new Date().toISOString(),
@@ -731,6 +739,7 @@ let lastStockScheduledKey = '';
 export function startZaloDailyScheduler(): void {
   if (schedulerStarted) return;
   schedulerStarted = true;
+  cleanOldTempImages();
 
   setInterval(() => {
     void (async () => {
