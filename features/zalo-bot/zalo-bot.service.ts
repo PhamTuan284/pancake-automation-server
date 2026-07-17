@@ -4,8 +4,9 @@ import fs from 'fs';
 import { getVariantSalesAnalytics, getAllProductVariations } from '../pancake-webhook/webhook.service';
 import { computeVariantSalesAnalytics } from '../pancake-webhook/lib/variantSalesAnalytics';
 import { formatVariantSalesZaloText } from './formatVariantSalesZaloText';
-import { computeRevenueAnalytics } from '../pancake-webhook/lib/revenueAnalytics';
+import { computeRevenueAnalytics, computeTeamSalesAnalytics } from '../pancake-webhook/lib/revenueAnalytics';
 import { formatDailyRevenueText, formatMonthlyRevenueText } from './formatRevenueZaloText';
+import { formatTeamSalesZaloText } from './formatTeamSalesZaloText';
 import { getAdminSettings } from '../../common/models/adminSettingsModel';
 import { useMongo } from '../../common/mongo';
 import { getDailyStockConfig, saveDailyStockConfig } from './dailyStockConfig';
@@ -59,6 +60,8 @@ function getEnvConfig() {
     stockChatId: process.env.ZALO_STOCK_CHAT_ID?.trim() || null,
     reportHour: Math.max(0, Math.min(23, parseInt(process.env.ZALO_REPORT_HOUR ?? '8', 10) || 8)),
     revenueHour: Math.max(0, Math.min(23, parseInt(process.env.ZALO_REVENUE_HOUR ?? '21', 10) || 21)),
+    teamSalesHour: Math.max(0, Math.min(23, parseInt(process.env.ZALO_TEAM_SALES_HOUR ?? '8', 10) || 8)),
+    teamSalesWeekday: Math.max(0, Math.min(6, parseInt(process.env.ZALO_TEAM_SALES_WEEKDAY ?? '1', 10) || 1)),
     shopKey: process.env.ZALO_REPORT_SHOP?.trim() || 'meit',
     windowDays: Math.max(1, parseInt(process.env.ZALO_REPORT_DAYS ?? '7', 10) || 7),
     topLimit: Math.max(1, parseInt(process.env.ZALO_REPORT_LIMIT ?? '15', 10) || 15),
@@ -502,6 +505,30 @@ export async function dispatchRevenueReport(
   }
 }
 
+export async function dispatchTeamSalesReport(): Promise<{ ok: boolean; text?: string; error?: string }> {
+  const env = getEnvConfig();
+  if (!env.botToken) return { ok: false, error: 'ZALO_BOT_TOKEN chưa được cấu hình.' };
+  if (!env.chatId) return { ok: false, error: 'ZALO_CHAT_ID chưa được cấu hình.' };
+
+  try {
+    const result = await computeTeamSalesAnalytics({ shopKey: env.shopKey });
+    const text = formatTeamSalesZaloText(result);
+    const sendResult = await sendZaloMessage(env.botToken, env.chatId, text);
+    addLog({
+      sentAt: new Date().toISOString(),
+      kind: 'report',
+      success: sendResult.ok,
+      error: sendResult.error,
+      chatId: env.chatId,
+      preview: text.slice(0, 100),
+    });
+    return { ...sendResult, text };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    return { ok: false, error };
+  }
+}
+
 // ---- Daily stock report (for schedule) ----
 
 type ProductEntry = {
@@ -773,6 +800,7 @@ export async function sendDailyStockReport(
 let schedulerStarted = false;
 let lastSalesScheduledDate = '';
 let lastRevenueScheduledDate = '';
+let lastTeamSalesScheduledDate = '';
 let lastStockScheduledKey = '';
 
 export function startZaloDailyScheduler(): void {
@@ -836,6 +864,32 @@ export function startZaloDailyScheduler(): void {
         } else {
           // no Mongo — just send daily
           void dispatchRevenueReport('daily');
+        }
+      }
+
+      // Team sales weekly report: fires on configured weekday + hour
+      const vnWeekday = vnNow.getUTCDay(); // 0=Sun,1=Mon,...
+      if (
+        env.botToken && env.chatId &&
+        vnWeekday === env.teamSalesWeekday &&
+        vnHour === env.teamSalesHour &&
+        lastTeamSalesScheduledDate !== vnDate
+      ) {
+        lastTeamSalesScheduledDate = vnDate;
+        if (useMongo()) {
+          const settings = await getAdminSettings().catch(() => null);
+          if (settings && !settings.botEnabled.zalo) {
+            console.log('[zalo-bot] Bot đang bị tắt, bỏ qua lịch gửi doanh số team sale.');
+          } else {
+            const result = await dispatchTeamSalesReport();
+            if (result.ok) {
+              console.log(`[zalo-bot] Đã gửi doanh số team sale tuần tại ${vnDate}.`);
+            } else {
+              console.error(`[zalo-bot] Lỗi gửi doanh số team sale: ${result.error ?? ''}`);
+            }
+          }
+        } else {
+          void dispatchTeamSalesReport();
         }
       }
 

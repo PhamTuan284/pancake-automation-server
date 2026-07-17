@@ -31,6 +31,10 @@ zaloRouter.post('/zalo-bot/send-revenue-report', (req, res) => {
   void ctrl.postSendRevenueReport(req, res);
 });
 
+zaloRouter.post('/zalo-bot/send-team-sales-report', (req, res) => {
+  void ctrl.postSendTeamSalesReport(req, res);
+});
+
 zaloRouter.post('/zalo-bot/send-product-stock', (req, res) => {
   void ctrl.postSendProductStock(req, res);
 });

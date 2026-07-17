@@ -2,6 +2,23 @@ import PancakeWebhookEvent from '../../../common/models/PancakeWebhookEvent';
 import { connectMongo, useMongo } from '../../../common/mongo';
 import { listWebhookEvents } from './pancakeWebhook';
 
+export type SellerWeekly = {
+  name: string;
+  orderCount: number;
+  grossRevenue: number;
+  netRevenue: number;
+  sources: Record<string, { orders: number; revenue: number }>;
+};
+
+export type TeamSalesWeeklyResult = {
+  weekStart: string; // YYYY-MM-DD VN (Monday)
+  weekEnd: string;   // YYYY-MM-DD VN (Sunday)
+  sellers: SellerWeekly[];
+  total: { orderCount: number; grossRevenue: number; netRevenue: number };
+  prevWeekTotal: { orderCount: number; grossRevenue: number; netRevenue: number };
+  shopKey: string;
+};
+
 export type DailyRevenue = {
   date: string; // YYYY-MM-DD VN
   orderCount: number;
@@ -153,4 +170,153 @@ export async function computeRevenueAnalytics(options?: {
   }
 
   return { byDay, shopKey };
+}
+
+// ---- Team sales analytics ----
+
+type RawOrderFull = RawOrder & { seller: string };
+
+function extractSeller(payload: unknown): string {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return 'Không phân công';
+  const root = payload as Record<string, unknown>;
+
+  // 1. Order-level assigning_seller
+  const rootSeller = root.assigning_seller as Record<string, unknown> | null | undefined;
+  if (rootSeller?.name) return trimStr(rootSeller.name);
+
+  // 2. Order creator
+  const creator = root.creator as Record<string, unknown> | null | undefined;
+  if (creator?.name) return trimStr(creator.name);
+
+  // 3. Most frequent assigning_seller across items
+  const items = root.items as Array<Record<string, unknown>> | undefined;
+  if (Array.isArray(items) && items.length > 0) {
+    const counts = new Map<string, number>();
+    for (const item of items) {
+      const s = item.assigning_seller as Record<string, unknown> | null | undefined;
+      const n = trimStr(s?.name);
+      if (n) counts.set(n, (counts.get(n) ?? 0) + 1);
+    }
+    if (counts.size > 0) {
+      return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    }
+  }
+
+  return 'Không phân công';
+}
+
+function extractRevenueFull(payload: unknown, receivedAt: string): RawOrderFull | null {
+  const base = extractRevenue(payload, receivedAt);
+  if (!base) return null;
+  return { ...base, seller: extractSeller(payload) };
+}
+
+/** Returns Monday YYYY-MM-DD of the ISO week containing `vnDate`. */
+function weekMonday(vnDate: string): string {
+  const d = new Date(vnDate + 'T00:00:00Z');
+  const day = d.getUTCDay(); // 0=Sun
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setUTCDate(d.getUTCDate() + diff);
+  return d.toISOString().slice(0, 10);
+}
+
+function addDaysDate(dateStr: string, n: number): string {
+  const d = new Date(dateStr + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+export async function computeTeamSalesAnalytics(options?: {
+  shopKey?: string;
+  /** VN date inside the target week; defaults to current week */
+  targetVnDate?: string;
+}): Promise<TeamSalesWeeklyResult> {
+  const shopKey = options?.shopKey ?? 'meit';
+  const todayVn = options?.targetVnDate
+    ?? new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10);
+
+  // Current week: Mon → Sun
+  const weekStart = weekMonday(todayVn);
+  const weekEnd   = addDaysDate(weekStart, 6);
+  // Previous week: Mon → Sun
+  const prevStart = addDaysDate(weekStart, -7);
+  const prevEnd   = addDaysDate(weekStart, -1);
+
+  const since = new Date(prevStart + 'T00:00:00+07:00');
+  const latestByOrderId = new Map<string, RawOrderFull>();
+
+  const upsert = (raw: RawOrderFull) => {
+    const ex = latestByOrderId.get(raw.orderId);
+    if (!ex || raw.receivedAt > ex.receivedAt) latestByOrderId.set(raw.orderId, raw);
+  };
+
+  if (useMongo()) {
+    try {
+      await connectMongo();
+      const filter: Record<string, unknown> = {
+        receivedAt: { $gte: since },
+        kind: 'orders',
+      };
+      if (shopKey === 'meit') {
+        filter.$or = [{ shopKey }, { shopKey: '' }, { shopKey: { $exists: false } }];
+      } else {
+        filter.shopKey = shopKey;
+      }
+      const docs = await PancakeWebhookEvent.find(filter).sort({ receivedAt: 1 }).limit(5000).lean();
+      for (const doc of docs) {
+        const raw = extractRevenueFull(doc.payload, new Date(doc.receivedAt || new Date()).toISOString());
+        if (raw) upsert(raw);
+      }
+    } catch (err) {
+      console.error('[team-sales] Mongo read failed:', err);
+    }
+  }
+
+  if (latestByOrderId.size === 0) {
+    const memory = await listWebhookEvents(2000);
+    for (const ev of memory) {
+      if (ev.kind !== 'orders') continue;
+      if (new Date(ev.at) < since) continue;
+      if (shopKey !== 'meit' && (ev.shopKey || 'meit') !== shopKey) continue;
+      const raw = extractRevenueFull(ev.payload, ev.at);
+      if (raw) upsert(raw);
+    }
+  }
+
+  const sellerMap = new Map<string, SellerWeekly>();
+  const total = { orderCount: 0, grossRevenue: 0, netRevenue: 0 };
+  const prevWeekTotal = { orderCount: 0, grossRevenue: 0, netRevenue: 0 };
+
+  for (const order of latestByOrderId.values()) {
+    const inCurrent = order.date >= weekStart && order.date <= weekEnd;
+    const inPrev    = order.date >= prevStart && order.date <= prevEnd;
+
+    if (inCurrent) {
+      total.orderCount++;
+      total.grossRevenue += order.gross;
+      total.netRevenue   += order.net;
+
+      let seller = sellerMap.get(order.seller);
+      if (!seller) {
+        seller = { name: order.seller, orderCount: 0, grossRevenue: 0, netRevenue: 0, sources: {} };
+        sellerMap.set(order.seller, seller);
+      }
+      seller.orderCount++;
+      seller.grossRevenue += order.gross;
+      seller.netRevenue   += order.net;
+      const src = seller.sources[order.source] ?? { orders: 0, revenue: 0 };
+      src.orders++;
+      src.revenue += order.net;
+      seller.sources[order.source] = src;
+    }
+
+    if (inPrev) {
+      prevWeekTotal.orderCount++;
+      prevWeekTotal.grossRevenue += order.gross;
+      prevWeekTotal.netRevenue   += order.net;
+    }
+  }
+
+  const sellers = [...sellerMap.values()].sort((a, b) => b.netRevenue - a.netRevenue);
+  return { weekStart, weekEnd, sellers, total, prevWeekTotal, shopKey };
 }
