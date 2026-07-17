@@ -27,6 +27,10 @@ zaloRouter.post('/zalo-bot/send-report', (req, res) => {
   void ctrl.postSendReport(req, res);
 });
 
+zaloRouter.post('/zalo-bot/send-revenue-report', (req, res) => {
+  void ctrl.postSendRevenueReport(req, res);
+});
+
 zaloRouter.post('/zalo-bot/send-product-stock', (req, res) => {
   void ctrl.postSendProductStock(req, res);
 });

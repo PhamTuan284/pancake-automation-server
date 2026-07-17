@@ -4,6 +4,8 @@ import fs from 'fs';
 import { getVariantSalesAnalytics, getAllProductVariations } from '../pancake-webhook/webhook.service';
 import { computeVariantSalesAnalytics } from '../pancake-webhook/lib/variantSalesAnalytics';
 import { formatVariantSalesZaloText } from './formatVariantSalesZaloText';
+import { computeRevenueAnalytics } from '../pancake-webhook/lib/revenueAnalytics';
+import { formatDailyRevenueText, formatMonthlyRevenueText } from './formatRevenueZaloText';
 import { getAdminSettings } from '../../common/models/adminSettingsModel';
 import { useMongo } from '../../common/mongo';
 import { getDailyStockConfig, saveDailyStockConfig } from './dailyStockConfig';
@@ -56,6 +58,7 @@ function getEnvConfig() {
     chatId: process.env.ZALO_CHAT_ID?.trim() || null,
     stockChatId: process.env.ZALO_STOCK_CHAT_ID?.trim() || null,
     reportHour: Math.max(0, Math.min(23, parseInt(process.env.ZALO_REPORT_HOUR ?? '8', 10) || 8)),
+    revenueHour: Math.max(0, Math.min(23, parseInt(process.env.ZALO_REVENUE_HOUR ?? '21', 10) || 21)),
     shopKey: process.env.ZALO_REPORT_SHOP?.trim() || 'meit',
     windowDays: Math.max(1, parseInt(process.env.ZALO_REPORT_DAYS ?? '7', 10) || 7),
     topLimit: Math.max(1, parseInt(process.env.ZALO_REPORT_LIMIT ?? '15', 10) || 15),
@@ -464,6 +467,41 @@ export async function sendZaloText(
   return result;
 }
 
+// ---- Revenue report ----
+
+export async function dispatchRevenueReport(
+  kind: 'daily' | 'monthly'
+): Promise<{ ok: boolean; text?: string; error?: string }> {
+  const env = getEnvConfig();
+  if (!env.botToken) return { ok: false, error: 'ZALO_BOT_TOKEN chưa được cấu hình.' };
+  if (!env.chatId) return { ok: false, error: 'ZALO_CHAT_ID chưa được cấu hình.' };
+
+  try {
+    const vnNow = new Date(Date.now() + 7 * 3_600_000);
+    const todayVnDate = vnNow.toISOString().slice(0, 10);
+
+    const result = await computeRevenueAnalytics({ shopKey: env.shopKey, days: 62 });
+
+    const text = kind === 'monthly'
+      ? formatMonthlyRevenueText(result, todayVnDate)
+      : formatDailyRevenueText(result, todayVnDate);
+
+    const sendResult = await sendZaloMessage(env.botToken, env.chatId, text);
+    addLog({
+      sentAt: new Date().toISOString(),
+      kind: 'report',
+      success: sendResult.ok,
+      error: sendResult.error,
+      chatId: env.chatId,
+      preview: text.slice(0, 100),
+    });
+    return { ...sendResult, text };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    return { ok: false, error };
+  }
+}
+
 // ---- Daily stock report (for schedule) ----
 
 type ProductEntry = {
@@ -734,6 +772,7 @@ export async function sendDailyStockReport(
 
 let schedulerStarted = false;
 let lastSalesScheduledDate = '';
+let lastRevenueScheduledDate = '';
 let lastStockScheduledKey = '';
 
 export function startZaloDailyScheduler(): void {
@@ -764,6 +803,39 @@ export function startZaloDailyScheduler(): void {
           console.log(`[zalo-bot] Đã gửi báo cáo doanh số tự động lúc ${vnDate} ${vnHour}h (VN).`);
         } else {
           console.error(`[zalo-bot] Lỗi gửi báo cáo doanh số: ${result.error ?? ''}`);
+        }
+      }
+
+      // Revenue report: fires at revenueHour; also sends monthly summary on last day of month
+      if (env.botToken && env.chatId && vnHour === env.revenueHour && lastRevenueScheduledDate !== vnDate) {
+        lastRevenueScheduledDate = vnDate;
+        if (useMongo()) {
+          const settings = await getAdminSettings().catch(() => null);
+          if (settings && !settings.botEnabled.zalo) {
+            console.log('[zalo-bot] Bot đang bị tắt, bỏ qua lịch gửi doanh thu.');
+          } else {
+            const isLastDayOfMonth = (() => {
+              const d = new Date(vnNow.getTime() + 24 * 3_600_000);
+              return d.getUTCDate() === 1;
+            })();
+            const dailyResult = await dispatchRevenueReport('daily');
+            if (dailyResult.ok) {
+              console.log(`[zalo-bot] Đã gửi doanh thu ngày ${vnDate}.`);
+            } else {
+              console.error(`[zalo-bot] Lỗi gửi doanh thu ngày: ${dailyResult.error ?? ''}`);
+            }
+            if (isLastDayOfMonth) {
+              const monthResult = await dispatchRevenueReport('monthly');
+              if (monthResult.ok) {
+                console.log(`[zalo-bot] Đã gửi tổng kết tháng ${vnDate}.`);
+              } else {
+                console.error(`[zalo-bot] Lỗi gửi tổng kết tháng: ${monthResult.error ?? ''}`);
+              }
+            }
+          }
+        } else {
+          // no Mongo — just send daily
+          void dispatchRevenueReport('daily');
         }
       }
 
