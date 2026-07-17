@@ -6,6 +6,7 @@ import {
   type PancakeProductCodes,
 } from './pancakeProductCodes';
 import { listWebhookEvents } from './pancakeWebhook';
+import { mongoShopKeyFilter, eventMatchesShopKey } from './shopKeyFilter';
 
 /** Public API row (merchant codes only, no Pancake numeric ids). */
 export type VariantSalesRow = {
@@ -269,14 +270,8 @@ async function loadAnalyticsEvents(
       const filter: Record<string, unknown> = {
         receivedAt: { $gte: since },
         kind: { $in: ['orders', 'variations_warehouses'] },
+        ...(shopKey ? mongoShopKeyFilter(shopKey) : {}),
       };
-      if (shopKey) {
-        // Events saved before shopKey was added have shopKey='' or missing;
-        // treat those legacy events as 'meit' (the only shop at that time).
-        filter.$or = shopKey === 'meit'
-          ? [{ shopKey }, { shopKey: '' }, { shopKey: { $exists: false } }]
-          : [{ shopKey }];
-      }
       const docs = await PancakeWebhookEvent.find(filter)
         .sort({ receivedAt: -1 })
         .limit(limit)
@@ -301,8 +296,7 @@ async function loadAnalyticsEvents(
       const at = new Date(ev.at);
       if (!(at >= since && (ev.kind === 'orders' || ev.kind === 'variations_warehouses'))) return false;
       if (!shopKey) return true;
-      const evShop = ev.shopKey || 'meit';
-      return evShop === shopKey;
+      return eventMatchesShopKey(ev.shopKey, shopKey);
     })
     .map((ev) => ({
       receivedAt: ev.at,

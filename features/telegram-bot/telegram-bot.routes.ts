@@ -8,7 +8,7 @@ telegramRouter.get('/telegram-bot/config', (req, res) => {
 });
 
 telegramRouter.get('/telegram-bot/logs', (req, res) => {
-  ctrl.getLogs(req, res);
+  void ctrl.getLogs(req, res);
 });
 
 telegramRouter.post('/telegram-bot/send-test', (req, res) => {

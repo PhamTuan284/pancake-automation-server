@@ -4,6 +4,7 @@ import { createApp } from './createApp';
 import { startTelegramDailyScheduler } from './features/telegram-bot/telegram-bot.service';
 import { startZaloDailyScheduler } from './features/zalo-bot/zalo-bot.service';
 import { seedFirstAdmin } from './common/seedAdmin';
+import { syncWebhookEventIndexes } from './common/models/PancakeWebhookEvent';
 
 const app = createApp();
 
@@ -21,6 +22,7 @@ server.on('listening', () => {
   startTelegramDailyScheduler();
   startZaloDailyScheduler();
   void seedFirstAdmin();
+  void syncWebhookEventIndexes();
   if (bound !== preferredPort) {
     console.warn(
       `API bound to ${bound} (preferred ${preferredPort} was busy). Point the UI proxy at this port, e.g. PowerShell:\n` +

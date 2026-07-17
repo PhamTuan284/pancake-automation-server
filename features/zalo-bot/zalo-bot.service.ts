@@ -1,6 +1,6 @@
-import https from 'https';
 import path from 'path';
 import fs from 'fs';
+import { httpsPost } from '../../common/httpsPost';
 import { getVariantSalesAnalytics, getAllProductVariations } from '../pancake-webhook/webhook.service';
 import { computeVariantSalesAnalytics } from '../pancake-webhook/lib/variantSalesAnalytics';
 import { formatVariantSalesZaloText } from './formatVariantSalesZaloText';
@@ -8,6 +8,8 @@ import { computeRevenueAnalytics, computeTeamSalesAnalytics } from '../pancake-w
 import { formatDailyRevenueText, formatMonthlyRevenueText } from './formatRevenueZaloText';
 import { formatTeamSalesZaloText } from './formatTeamSalesZaloText';
 import { getAdminSettings } from '../../common/models/adminSettingsModel';
+import { getLastSentDate, markSentDate } from '../../common/models/schedulerStateModel';
+import { addBotSendLog, getBotSendLogs, type BotSendLogEntry } from '../../common/models/botSendLogModel';
 import { useMongo } from '../../common/mongo';
 import { getDailyStockConfig, saveDailyStockConfig } from './dailyStockConfig';
 import type { InvoiceShopKey } from '../pancake-einvoice/invoiceShops';
@@ -40,18 +42,7 @@ export type ZaloBotConfig = {
   excludeVariants: string[];
 };
 
-export type ZaloSendLog = {
-  id: string;
-  sentAt: string;
-  kind: 'test' | 'report' | 'scheduled' | 'alert';
-  success: boolean;
-  error?: string;
-  chatId: string;
-  preview: string;
-};
-
-const MAX_LOGS = 50;
-const sendLogs: ZaloSendLog[] = [];
+export type ZaloSendLog = BotSendLogEntry;
 
 function getEnvConfig() {
   return {
@@ -85,49 +76,13 @@ export function getZaloBotConfig(): ZaloBotConfig {
   };
 }
 
-export function getZaloSendLogs(): ZaloSendLog[] {
-  return [...sendLogs];
+export function getZaloSendLogs(): Promise<ZaloSendLog[]> {
+  return getBotSendLogs('zalo');
 }
 
 function addLog(log: Omit<ZaloSendLog, 'id'>): void {
-  sendLogs.unshift({
-    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    ...log,
-  });
-  if (sendLogs.length > MAX_LOGS) sendLogs.splice(MAX_LOGS);
+  addBotSendLog('zalo', log);
 }
-
-function httpsPost(
-  url: string,
-  body: string
-): Promise<{ ok: boolean; body: string; status: number }> {
-  return new Promise((resolve, reject) => {
-    const parsed = new URL(url);
-    const req = https.request(
-      {
-        hostname: parsed.hostname,
-        path: parsed.pathname + parsed.search,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(body),
-        },
-      },
-      (res) => {
-        let data = '';
-        res.on('data', (chunk: Buffer) => { data += chunk.toString(); });
-        res.on('end', () => {
-          const status = res.statusCode ?? 0;
-          resolve({ ok: status >= 200 && status < 300, body: data, status });
-        });
-      }
-    );
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
-}
-
 
 export type ZaloUpdateChat = {
   id: string;
@@ -819,6 +774,10 @@ export function startZaloDailyScheduler(): void {
       // Sales report: fires at configured hour (whole hour)
       if (env.botToken && env.chatId && vnHour === env.reportHour && lastSalesScheduledDate !== vnDate) {
         lastSalesScheduledDate = vnDate;
+        if (await getLastSentDate('zalo-sales') === vnDate) {
+          console.log('[zalo-bot] Báo cáo doanh số hôm nay đã gửi trước khi restart, bỏ qua.');
+          return;
+        }
         if (useMongo()) {
           const settings = await getAdminSettings().catch(() => null);
           if (settings && !settings.botEnabled.zalo) {
@@ -826,6 +785,7 @@ export function startZaloDailyScheduler(): void {
             return;
           }
         }
+        await markSentDate('zalo-sales', vnDate);
         const result = await dispatchZaloSend('scheduled');
         if (result.ok) {
           console.log(`[zalo-bot] Đã gửi báo cáo doanh số tự động lúc ${vnDate} ${vnHour}h (VN).`);
@@ -837,7 +797,9 @@ export function startZaloDailyScheduler(): void {
       // Revenue report: fires at revenueHour; also sends monthly summary on last day of month
       if (env.botToken && env.chatId && vnHour === env.revenueHour && lastRevenueScheduledDate !== vnDate) {
         lastRevenueScheduledDate = vnDate;
-        if (useMongo()) {
+        if (await getLastSentDate('zalo-revenue') === vnDate) {
+          console.log('[zalo-bot] Doanh thu hôm nay đã gửi trước khi restart, bỏ qua.');
+        } else if (useMongo()) {
           const settings = await getAdminSettings().catch(() => null);
           if (settings && !settings.botEnabled.zalo) {
             console.log('[zalo-bot] Bot đang bị tắt, bỏ qua lịch gửi doanh thu.');
@@ -846,6 +808,7 @@ export function startZaloDailyScheduler(): void {
               const d = new Date(vnNow.getTime() + 24 * 3_600_000);
               return d.getUTCDate() === 1;
             })();
+            await markSentDate('zalo-revenue', vnDate);
             const dailyResult = await dispatchRevenueReport('daily');
             if (dailyResult.ok) {
               console.log(`[zalo-bot] Đã gửi doanh thu ngày ${vnDate}.`);
@@ -863,6 +826,7 @@ export function startZaloDailyScheduler(): void {
           }
         } else {
           // no Mongo — just send daily
+          await markSentDate('zalo-revenue', vnDate);
           void dispatchRevenueReport('daily');
         }
       }
@@ -876,11 +840,14 @@ export function startZaloDailyScheduler(): void {
         lastTeamSalesScheduledDate !== vnDate
       ) {
         lastTeamSalesScheduledDate = vnDate;
-        if (useMongo()) {
+        if (await getLastSentDate('zalo-team-sales') === vnDate) {
+          console.log('[zalo-bot] Doanh số team sale tuần này đã gửi trước khi restart, bỏ qua.');
+        } else if (useMongo()) {
           const settings = await getAdminSettings().catch(() => null);
           if (settings && !settings.botEnabled.zalo) {
             console.log('[zalo-bot] Bot đang bị tắt, bỏ qua lịch gửi doanh số team sale.');
           } else {
+            await markSentDate('zalo-team-sales', vnDate);
             const result = await dispatchTeamSalesReport();
             if (result.ok) {
               console.log(`[zalo-bot] Đã gửi doanh số team sale tuần tại ${vnDate}.`);
@@ -889,6 +856,7 @@ export function startZaloDailyScheduler(): void {
             }
           }
         } else {
+          await markSentDate('zalo-team-sales', vnDate);
           void dispatchTeamSalesReport();
         }
       }
@@ -902,7 +870,11 @@ export function startZaloDailyScheduler(): void {
       ) {
         const [configH, configM] = stockConfig.sendTime.split(':').map(Number);
         const stockKey = `${vnDate}-${stockConfig.sendTime}`;
-        if (vnHour === configH && vnMinute === configM && lastStockScheduledKey !== stockKey) {
+        if (
+          vnHour === configH && vnMinute === configM &&
+          lastStockScheduledKey !== stockKey &&
+          stockConfig.lastSentDate !== vnDate
+        ) {
           lastStockScheduledKey = stockKey;
           if (useMongo()) {
             const settings = await getAdminSettings().catch(() => null);

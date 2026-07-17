@@ -9,8 +9,8 @@ export function getConfig(_req: Request, res: Response): void {
   res.json({ ok: true, ...getTelegramBotConfig() });
 }
 
-export function getLogs(_req: Request, res: Response): void {
-  res.json({ ok: true, logs: getTelegramSendLogs() });
+export async function getLogs(_req: Request, res: Response): Promise<void> {
+  res.json({ ok: true, logs: await getTelegramSendLogs() });
 }
 
 export async function postSendTest(_req: Request, res: Response): Promise<void> {

@@ -8,7 +8,7 @@ zaloRouter.get('/zalo-bot/config', (req, res) => {
 });
 
 zaloRouter.get('/zalo-bot/logs', (req, res) => {
-  ctrl.getLogs(req, res);
+  void ctrl.getLogs(req, res);
 });
 
 zaloRouter.post('/zalo-bot/set-webhook', (req, res) => {

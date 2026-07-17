@@ -1,7 +1,9 @@
-import https from 'https';
 import { getVariantSalesAnalytics } from '../pancake-webhook/webhook.service';
+import { httpsPost } from '../../common/httpsPost';
 import { formatVariantSalesTelegramHtml } from './formatVariantSalesTelegramHtml';
 import { getAdminSettings } from '../../common/models/adminSettingsModel';
+import { getLastSentDate, markSentDate } from '../../common/models/schedulerStateModel';
+import { addBotSendLog, getBotSendLogs, type BotSendLogEntry } from '../../common/models/botSendLogModel';
 import { useMongo } from '../../common/mongo';
 
 export type TelegramBotConfig = {
@@ -13,18 +15,7 @@ export type TelegramBotConfig = {
   topLimit: number;
 };
 
-export type TelegramSendLog = {
-  id: string;
-  sentAt: string;
-  kind: 'test' | 'report' | 'scheduled';
-  success: boolean;
-  error?: string;
-  chatId: string;
-  preview: string;
-};
-
-const MAX_LOGS = 50;
-const sendLogs: TelegramSendLog[] = [];
+export type TelegramSendLog = BotSendLogEntry;
 
 function getEnvConfig() {
   return {
@@ -53,49 +44,12 @@ export function getTelegramBotConfig(): TelegramBotConfig {
   };
 }
 
-export function getTelegramSendLogs(): TelegramSendLog[] {
-  return [...sendLogs];
+export function getTelegramSendLogs(): Promise<TelegramSendLog[]> {
+  return getBotSendLogs('telegram');
 }
 
 function addLog(log: Omit<TelegramSendLog, 'id'>): void {
-  sendLogs.unshift({
-    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    ...log,
-  });
-  if (sendLogs.length > MAX_LOGS) sendLogs.splice(MAX_LOGS);
-}
-
-function httpsPost(
-  url: string,
-  body: string
-): Promise<{ ok: boolean; body: string; status: number }> {
-  return new Promise((resolve, reject) => {
-    const parsed = new URL(url);
-    const req = https.request(
-      {
-        hostname: parsed.hostname,
-        path: parsed.pathname + parsed.search,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(body),
-        },
-      },
-      (res) => {
-        let data = '';
-        res.on('data', (chunk: Buffer) => {
-          data += chunk.toString();
-        });
-        res.on('end', () => {
-          const status = res.statusCode ?? 0;
-          resolve({ ok: status >= 200 && status < 300, body: data, status });
-        });
-      }
-    );
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
+  addBotSendLog('telegram', log);
 }
 
 async function sendTelegramMessage(
@@ -210,6 +164,10 @@ export function startTelegramDailyScheduler(): void {
     if (vnHour === env.reportHour && lastScheduledDate !== vnDate) {
       lastScheduledDate = vnDate;
       void (async () => {
+        if (await getLastSentDate('telegram-sales') === vnDate) {
+          console.log('[telegram-bot] Báo cáo hôm nay đã gửi trước khi restart, bỏ qua.');
+          return;
+        }
         if (useMongo()) {
           const settings = await getAdminSettings().catch(() => null);
           if (settings && !settings.botEnabled.telegram) {
@@ -217,6 +175,7 @@ export function startTelegramDailyScheduler(): void {
             return;
           }
         }
+        await markSentDate('telegram-sales', vnDate);
         const result = await dispatchTelegramSend('scheduled');
         if (result.ok) {
           console.log(`[telegram-bot] Đã gửi báo cáo tự động lúc ${vnDate} ${vnHour}h (VN).`);

@@ -1,6 +1,7 @@
 import PancakeWebhookEvent from '../../../common/models/PancakeWebhookEvent';
 import { connectMongo, useMongo } from '../../../common/mongo';
 import { listWebhookEvents } from './pancakeWebhook';
+import { mongoShopKeyFilter, eventMatchesShopKey } from './shopKeyFilter';
 
 export type SellerWeekly = {
   name: string;
@@ -133,14 +134,11 @@ export async function computeRevenueAnalytics(options?: {
       const filter: Record<string, unknown> = {
         receivedAt: { $gte: since },
         kind: 'orders',
+        ...mongoShopKeyFilter(shopKey),
       };
-      if (shopKey === 'meit') {
-        filter.$or = [{ shopKey }, { shopKey: '' }, { shopKey: { $exists: false } }];
-      } else {
-        filter.shopKey = shopKey;
-      }
+      // Sort newest-first so the limit trims OLD events, never today's orders.
       const docs = await PancakeWebhookEvent.find(filter)
-        .sort({ receivedAt: 1 })
+        .sort({ receivedAt: -1 })
         .limit(5000)
         .lean();
       for (const doc of docs) {
@@ -158,7 +156,7 @@ export async function computeRevenueAnalytics(options?: {
     for (const ev of memory) {
       if (ev.kind !== 'orders') continue;
       if (new Date(ev.at) < since) continue;
-      if (shopKey !== 'meit' && (ev.shopKey || 'meit') !== shopKey) continue;
+      if (!eventMatchesShopKey(ev.shopKey, shopKey)) continue;
       const raw = extractRevenue(ev.payload, ev.at);
       if (raw) upsert(raw);
     }
@@ -256,13 +254,10 @@ export async function computeTeamSalesAnalytics(options?: {
       const filter: Record<string, unknown> = {
         receivedAt: { $gte: since },
         kind: 'orders',
+        ...mongoShopKeyFilter(shopKey),
       };
-      if (shopKey === 'meit') {
-        filter.$or = [{ shopKey }, { shopKey: '' }, { shopKey: { $exists: false } }];
-      } else {
-        filter.shopKey = shopKey;
-      }
-      const docs = await PancakeWebhookEvent.find(filter).sort({ receivedAt: 1 }).limit(5000).lean();
+      // Sort newest-first so the limit trims OLD events, never this week's orders.
+      const docs = await PancakeWebhookEvent.find(filter).sort({ receivedAt: -1 }).limit(5000).lean();
       for (const doc of docs) {
         const raw = extractRevenueFull(doc.payload, new Date(doc.receivedAt || new Date()).toISOString());
         if (raw) upsert(raw);
@@ -277,7 +272,7 @@ export async function computeTeamSalesAnalytics(options?: {
     for (const ev of memory) {
       if (ev.kind !== 'orders') continue;
       if (new Date(ev.at) < since) continue;
-      if (shopKey !== 'meit' && (ev.shopKey || 'meit') !== shopKey) continue;
+      if (!eventMatchesShopKey(ev.shopKey, shopKey)) continue;
       const raw = extractRevenueFull(ev.payload, ev.at);
       if (raw) upsert(raw);
     }

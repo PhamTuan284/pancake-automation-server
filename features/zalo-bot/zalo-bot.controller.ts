@@ -21,8 +21,8 @@ export function getConfig(_req: Request, res: Response): void {
   res.json({ ok: true, ...getZaloBotConfig() });
 }
 
-export function getLogs(_req: Request, res: Response): void {
-  res.json({ ok: true, logs: getZaloSendLogs() });
+export async function getLogs(_req: Request, res: Response): Promise<void> {
+  res.json({ ok: true, logs: await getZaloSendLogs() });
 }
 
 export async function postSendTest(_req: Request, res: Response): Promise<void> {

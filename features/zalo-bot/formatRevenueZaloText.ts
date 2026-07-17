@@ -1,17 +1,5 @@
 import type { DailyRevenue, RevenueAnalyticsResult } from '../pancake-webhook/lib/revenueAnalytics';
-
-function fmtMoney(n: number): string {
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}tỷ`;
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}tr`;
-  return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.') + 'đ';
-}
-
-function fmtPct(curr: number, prev: number): string {
-  if (prev === 0) return curr > 0 ? '+∞%' : '—';
-  const pct = ((curr - prev) / prev) * 100;
-  const sign = pct >= 0 ? '+' : '';
-  return `${sign}${pct.toFixed(1)}%`;
-}
+import { fmtMoney, fmtPct } from './formatUtils';
 
 function vnDateLabel(date: string): string {
   if (!date) return '—';

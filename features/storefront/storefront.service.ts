@@ -4,7 +4,7 @@ import {
 } from '../pancake-webhook/lib/pancakeWebhook';
 import type { InvoiceShopKey } from '../pancake-einvoice/invoiceShops';
 import { connectMongo } from '../../common/mongo';
-import StorefrontOrder from '../../common/models/storefrontOrderModel';
+import { StorefrontOrder } from '../../common/models/storefrontOrderModel';
 import SoldCountCache from '../../common/models/soldCountCacheModel';
 import { getStorefrontConfig } from '../../common/models/storefrontConfigModel';
 
