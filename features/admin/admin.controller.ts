@@ -79,15 +79,19 @@ export async function updateUser(req: Request, res: Response): Promise<void> {
   try {
     await ensureMongoConnected();
     const { id } = req.params;
-    const { role, isActive, password } = req.body as {
+    const { role, isActive, password, paidLeaveTotal } = req.body as {
       role?: string;
       isActive?: boolean;
       password?: string;
+      paidLeaveTotal?: number;
     };
     const update: Record<string, unknown> = {};
     if (role === 'admin' || role === 'user') update.role = role;
     if (typeof isActive === 'boolean') update.isActive = isActive;
     if (password) update.passwordHash = await bcrypt.hash(password, 12);
+    if (typeof paidLeaveTotal === 'number' && Number.isFinite(paidLeaveTotal) && paidLeaveTotal >= 0) {
+      update.paidLeaveTotal = paidLeaveTotal;
+    }
 
     const user = await UserModel.findByIdAndUpdate(id, update, {
       new: true,

@@ -7,6 +7,7 @@ export type UserDoc = {
   passwordHash: string;
   role: UserRole;
   isActive: boolean;
+  paidLeaveTotal: number;
   createdAt: Date;
 };
 
@@ -16,6 +17,7 @@ const userSchema = new mongoose.Schema<UserDoc>(
     passwordHash: { type: String, required: true },
     role: { type: String, enum: ['admin', 'user'], default: 'user' },
     isActive: { type: Boolean, default: true },
+    paidLeaveTotal: { type: Number, default: 12, min: 0 },
   },
   {
     collection: 'users',
