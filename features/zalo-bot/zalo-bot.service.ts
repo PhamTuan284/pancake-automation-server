@@ -2,7 +2,6 @@ import path from 'path';
 import fs from 'fs';
 import { httpsPost } from '../../common/httpsPost';
 import { getVariantSalesAnalytics, getAllProductVariations } from '../pancake-webhook/webhook.service';
-import { computeVariantSalesAnalytics } from '../pancake-webhook/lib/variantSalesAnalytics';
 import { formatVariantSalesZaloText } from './formatVariantSalesZaloText';
 import { computeRevenueAnalytics, computeTeamSalesAnalytics } from '../pancake-webhook/lib/revenueAnalytics';
 import { formatDailyRevenueText, formatMonthlyRevenueText } from './formatRevenueZaloText';
@@ -595,7 +594,7 @@ async function fetchSlowMovers(
   shopKey: string,
   windowDays: number
 ): Promise<SlowMover[]> {
-  const analytics = await computeVariantSalesAnalytics({ days: windowDays, shopKey });
+  const analytics = await getVariantSalesAnalytics({ days: windowDays, shop: shopKey });
   const codeSet = new Set(productCodes);
 
   const agg = new Map<string, { stock: number; soldPerDay: number }>();
