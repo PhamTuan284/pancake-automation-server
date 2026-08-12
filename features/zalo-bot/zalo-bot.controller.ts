@@ -16,6 +16,11 @@ import {
 import { getDailyStockConfig, saveDailyStockConfig } from './dailyStockConfig';
 import { getAbnormalOrderConfig, saveAbnormalOrderConfig } from './abnormalOrderConfig';
 import { sendMockAbnormalOrderAlert } from './abnormalOrderAlert';
+import {
+  listProductPriceConfigs,
+  upsertProductPriceConfig,
+  deleteProductPriceConfig,
+} from './productPriceConfig';
 
 export function getConfig(_req: Request, res: Response): void {
   res.json({ ok: true, ...getZaloBotConfig() });
@@ -220,4 +225,36 @@ export async function saveAbnormalOrderConfigHandler(req: Request, res: Response
     ...(thresholdPct !== undefined && { thresholdPct }),
   });
   res.json({ ok: true, ...updated });
+}
+
+export async function getProductPriceConfigsHandler(_req: Request, res: Response): Promise<void> {
+  const configs = await listProductPriceConfigs();
+  res.json({ ok: true, configs });
+}
+
+export async function saveProductPriceConfigHandler(req: Request, res: Response): Promise<void> {
+  const body = (req.body as Record<string, unknown>) ?? {};
+  const productCode = String(body.productCode ?? '').trim();
+  if (!productCode) {
+    res.status(400).json({ ok: false, error: 'Thiếu trường productCode.' });
+    return;
+  }
+  const updated = await upsertProductPriceConfig({
+    productCode,
+    costPrice: Number(body.costPrice) || 0,
+    offPlatformPrice: Number(body.offPlatformPrice) || 0,
+    platformPrice: Number(body.platformPrice) || 0,
+    wholesalePrice: Number(body.wholesalePrice) || 0,
+  });
+  res.json({ ok: true, config: updated });
+}
+
+export async function deleteProductPriceConfigHandler(req: Request, res: Response): Promise<void> {
+  const productCode = String(req.params.productCode ?? '').trim();
+  if (!productCode) {
+    res.status(400).json({ ok: false, error: 'Thiếu productCode.' });
+    return;
+  }
+  await deleteProductPriceConfig(productCode);
+  res.json({ ok: true });
 }

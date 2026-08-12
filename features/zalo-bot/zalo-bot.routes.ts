@@ -66,3 +66,15 @@ zaloRouter.get('/zalo-bot/abnormal-order-config', (req, res) => {
 zaloRouter.put('/zalo-bot/abnormal-order-config', (req, res) => {
   void ctrl.saveAbnormalOrderConfigHandler(req, res);
 });
+
+zaloRouter.get('/zalo-bot/product-price-config', (req, res) => {
+  void ctrl.getProductPriceConfigsHandler(req, res);
+});
+
+zaloRouter.put('/zalo-bot/product-price-config', (req, res) => {
+  void ctrl.saveProductPriceConfigHandler(req, res);
+});
+
+zaloRouter.delete('/zalo-bot/product-price-config/:productCode', (req, res) => {
+  void ctrl.deleteProductPriceConfigHandler(req, res);
+});

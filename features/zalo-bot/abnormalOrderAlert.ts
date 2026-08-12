@@ -1,4 +1,5 @@
 import { getAbnormalOrderConfig } from './abnormalOrderConfig';
+import { getProductPriceConfigMap, type ProductPriceConfig } from './productPriceConfig';
 import { sendZaloText } from './zalo-bot.service';
 
 type VariationField = { name?: string; value?: string };
@@ -26,8 +27,78 @@ type OrderPayload = {
   items?: OrderItem[];
   order_link?: string;
   order_sources_name?: string;
+  bill_full_name?: string;
   inserted_at?: string;
 };
+
+const WHOLESALE_CUSTOMER_NAME = 'sỉ thái ngân';
+const PLATFORM_SOURCES = new Set(['shopee', 'tiktok']);
+const OFF_PLATFORM_SOURCES = new Set(['zalo', 'facebook']);
+
+type PriceChannel = 'platform' | 'off-platform' | 'wholesale' | null;
+
+function classifyPriceChannel(order: OrderPayload): PriceChannel {
+  const source = (order.order_sources_name ?? '').trim().toLowerCase();
+  const buyer = (order.bill_full_name ?? '').trim().toLowerCase();
+  if (source === 'zalo' && buyer === WHOLESALE_CUSTOMER_NAME) return 'wholesale';
+  if (PLATFORM_SOURCES.has(source)) return 'platform';
+  if (OFF_PLATFORM_SOURCES.has(source)) return 'off-platform';
+  return null;
+}
+
+/** So sánh giá bán thực tế và giá nhập của từng sản phẩm trong đơn với bảng giá cấu hình. */
+export function checkPriceRuleViolations(
+  order: OrderPayload,
+  priceMap: Map<string, ProductPriceConfig>
+): string[] {
+  const reasons: string[] = [];
+  const items = order.items ?? [];
+  const channel = classifyPriceChannel(order);
+
+  let totalCost = 0;
+  let hasCostData = false;
+
+  for (const item of items) {
+    const productCode = item.variation_info?.product_display_id;
+    if (!productCode) continue;
+    const cfg = priceMap.get(productCode);
+    if (!cfg) continue;
+
+    const qty = Number(item.quantity ?? 1) || 1;
+    const retail = Number(item.variation_info?.retail_price ?? 0);
+    const discount = Number(item.discount_each_product ?? 0);
+    const unitPrice = retail - discount / qty;
+    const itemName = item.variation_info?.name ?? productCode;
+
+    if (cfg.costPrice > 0) {
+      totalCost += cfg.costPrice * qty;
+      hasCostData = true;
+    }
+
+    if (channel === 'platform' && cfg.platformPrice > 0 && unitPrice < cfg.platformPrice) {
+      reasons.push(
+        `🚫 "${itemName}" bán ${fmtMoney(unitPrice)} thấp hơn giá bán trên sàn ${fmtMoney(cfg.platformPrice)}`
+      );
+    } else if (channel === 'off-platform' && cfg.offPlatformPrice > 0 && unitPrice < cfg.offPlatformPrice) {
+      reasons.push(
+        `🚫 "${itemName}" bán ${fmtMoney(unitPrice)} thấp hơn giá bán ngoài sàn ${fmtMoney(cfg.offPlatformPrice)}`
+      );
+    } else if (channel === 'wholesale' && cfg.wholesalePrice > 0 && unitPrice < cfg.wholesalePrice) {
+      reasons.push(
+        `🚫 "${itemName}" bán ${fmtMoney(unitPrice)} thấp hơn giá sỉ ${fmtMoney(cfg.wholesalePrice)}`
+      );
+    }
+  }
+
+  const revenue = Number(order.total_price_after_sub_discount ?? 0);
+  if (hasCostData && revenue > 0 && revenue < totalCost) {
+    reasons.push(
+      `🚫 Doanh thu nhận về ${fmtMoney(revenue)} thấp hơn tổng giá nhập ${fmtMoney(totalCost)}`
+    );
+  }
+
+  return reasons;
+}
 
 function fmtMoney(n: number): string {
   return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.') + 'đ';
@@ -73,7 +144,11 @@ function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 1) + '…' : s;
 }
 
-export function formatAbnormalOrderMessage(order: OrderPayload, thresholdPct: number): string {
+export function formatAbnormalOrderMessage(
+  order: OrderPayload,
+  thresholdPct: number,
+  priceReasons: string[] = []
+): string {
   const totalPrice = Number(order.total_price ?? 0);
   const afterDiscount = Number(order.total_price_after_sub_discount ?? 0);
   const feeMarket = Number(order.fee_marketplace ?? 0);
@@ -97,6 +172,10 @@ export function formatAbnormalOrderMessage(order: OrderPayload, thresholdPct: nu
   ];
 
   if (order.order_link) lines.push(`🔗 ${order.order_link}`);
+
+  if (priceReasons.length > 0) {
+    lines.push('', SEP, '💲 Vi phạm bảng giá:', ...priceReasons);
+  }
 
   lines.push(
     '',
@@ -229,12 +308,17 @@ export async function checkAndSendAbnormalOrderAlert(payload: unknown): Promise<
   const config = await getAbnormalOrderConfig();
   if (!config.enabled) return;
 
+  const priceMap = await getProductPriceConfigMap();
+  const priceReasons = priceMap.size > 0 ? checkPriceRuleViolations(order, priceMap) : [];
+
   const pct = (afterDiscount / totalPrice) * 100;
-  if (pct >= config.thresholdPct) return;
+  const pctTriggered = pct < config.thresholdPct;
+
+  if (!pctTriggered && priceReasons.length === 0) return;
 
   if (orderId) markAlerted(orderId);
 
-  const text = formatAbnormalOrderMessage(order, config.thresholdPct);
+  const text = formatAbnormalOrderMessage(order, config.thresholdPct, priceReasons);
   const result = await sendZaloText(text);
   if (!result.ok) {
     console.error(`[abnormal-order] Lỗi gửi cảnh báo Zalo: ${result.error ?? ''}`);
