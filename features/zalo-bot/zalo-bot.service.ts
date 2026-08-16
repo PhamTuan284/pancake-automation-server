@@ -875,6 +875,10 @@ export function startZaloDailyScheduler(): void {
           stockConfig.lastSentDate !== vnDate
         ) {
           lastStockScheduledKey = stockKey;
+          if (await getLastSentDate('zalo-stock') === vnDate) {
+            console.log('[zalo-bot] Tồn kho hôm nay đã gửi trước khi restart, bỏ qua.');
+            return;
+          }
           if (useMongo()) {
             const settings = await getAdminSettings().catch(() => null);
             if (settings && !settings.botEnabled.zalo) {
@@ -882,6 +886,7 @@ export function startZaloDailyScheduler(): void {
               return;
             }
           }
+          await markSentDate('zalo-stock', vnDate);
           const result = await sendDailyStockReport('scheduled');
           if (result.ok) {
             await saveDailyStockConfig({ lastSentDate: vnDate });
