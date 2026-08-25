@@ -3,7 +3,9 @@ import { ensureMongoConnected } from '../../common/mongo';
 import {
   LeaveInputError,
   createLeaveRequest,
+  decideLeaveRequest,
   deleteLeaveRequest,
+  getMyLeaveBalance,
   listAllLeaveRequests,
   listLeaveBalances,
   listMyLeaveRequests,
@@ -50,6 +52,40 @@ export async function getLeaveBalances(_req: Request, res: Response): Promise<vo
   } catch (err) {
     console.error('[leave/balances]', err);
     res.status(500).json({ ok: false, error: 'Lỗi server.' });
+  }
+}
+
+export async function getMyLeaveBalanceController(req: Request, res: Response): Promise<void> {
+  try {
+    await ensureMongoConnected();
+    const balance = await getMyLeaveBalance(req.auth!.username);
+    res.json({ ok: true, balance });
+  } catch (err) {
+    console.error('[leave/my-balance]', err);
+    res.status(500).json({ ok: false, error: 'Lỗi server.' });
+  }
+}
+
+export async function approveLeaveRequestController(req: Request, res: Response): Promise<void> {
+  try {
+    await ensureMongoConnected();
+    const record = await decideLeaveRequest(req.params.id, 'approved', req.auth!);
+    res.json({ ok: true, record });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Không thể duyệt đơn.';
+    res.status(err instanceof LeaveInputError ? 400 : 500).json({ ok: false, error: message });
+  }
+}
+
+export async function rejectLeaveRequestController(req: Request, res: Response): Promise<void> {
+  try {
+    await ensureMongoConnected();
+    const { reason } = (req.body || {}) as { reason?: string };
+    const record = await decideLeaveRequest(req.params.id, 'rejected', req.auth!, reason);
+    res.json({ ok: true, record });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Không thể từ chối đơn.';
+    res.status(err instanceof LeaveInputError ? 400 : 500).json({ ok: false, error: message });
   }
 }
 

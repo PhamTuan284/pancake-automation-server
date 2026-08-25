@@ -1,21 +1,32 @@
 import mongoose from 'mongoose';
 
-export type TabAccessLevel = 'guest' | 'user' | 'admin';
-
+/**
+ * Tab access rules: each tool id maps to the list of departments allowed to
+ * see it. `'*'` means any logged-in user regardless of department. An empty
+ * array means only `role: 'admin'` users (who bypass this check entirely).
+ */
 export type AdminSettingsDoc = {
-  /** Minimum role required to see each tab. Unset keys default to 'guest' (everyone). */
-  tabAccess: Map<string, TabAccessLevel>;
+  tabAccess: Map<string, string[]>;
   botEnabled: {
     zalo: boolean;
   };
+};
+
+export const DEFAULT_TAB_ACCESS: Record<string, string[]> = {
+  'pancake-einvoice-meit': ['Accountant'],
+  'pancake-einvoice-dpa': ['Accountant'],
+  'pancake-webhook': [],
+  leave: ['*'],
+  'zalo-bot': [],
+  'admin-storefront': [],
 };
 
 const adminSettingsSchema = new mongoose.Schema<AdminSettingsDoc>(
   {
     tabAccess: {
       type: Map,
-      of: { type: String, enum: ['guest', 'user', 'admin'] },
-      default: () => new Map(),
+      of: [String],
+      default: () => new Map(Object.entries(DEFAULT_TAB_ACCESS)),
     },
     botEnabled: {
       zalo: { type: Boolean, default: true },
@@ -33,7 +44,7 @@ export async function getAdminSettings(): Promise<AdminSettingsDoc> {
   let settings = await AdminSettingsModel.findOne();
   if (!settings) {
     settings = await AdminSettingsModel.create({
-      tabAccess: new Map(),
+      tabAccess: new Map(Object.entries(DEFAULT_TAB_ACCESS)),
       botEnabled: { zalo: true },
     });
   }

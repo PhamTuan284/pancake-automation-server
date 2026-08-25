@@ -1,8 +1,8 @@
 import type { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { UserModel } from '../../common/models/userModel';
-import { AdminSettingsModel, getAdminSettings } from '../../common/models/adminSettingsModel';
+import { UserModel, DEPARTMENTS } from '../../common/models/userModel';
+import { AdminSettingsModel, getAdminSettings, DEFAULT_TAB_ACCESS } from '../../common/models/adminSettingsModel';
 import { ensureMongoConnected } from '../../common/mongo';
 import { getJwtSecret } from '../../common/auth.middleware';
 
@@ -24,7 +24,13 @@ export async function login(req: Request, res: Response): Promise<void> {
       getJwtSecret(),
       { expiresIn: '24h' }
     );
-    res.json({ token, username: user.username, role: user.role });
+    res.json({
+      token,
+      username: user.username,
+      role: user.role,
+      department: user.department,
+      gender: user.gender,
+    });
   } catch (err) {
     console.error('[admin/login]', err);
     res.status(500).json({ error: 'Lỗi server.' });
@@ -49,10 +55,13 @@ export async function listUsers(_req: Request, res: Response): Promise<void> {
 export async function createUser(req: Request, res: Response): Promise<void> {
   try {
     await ensureMongoConnected();
-    const { username, password, role } = req.body as {
+    const { username, password, role, department, hireDate, gender } = req.body as {
       username?: string;
       password?: string;
       role?: string;
+      department?: string;
+      hireDate?: string;
+      gender?: string;
     };
     if (!username?.trim() || !password) {
       res.status(400).json({ error: 'Cần nhập tên đăng nhập và mật khẩu.' });
@@ -63,12 +72,23 @@ export async function createUser(req: Request, res: Response): Promise<void> {
       return;
     }
     const passwordHash = await bcrypt.hash(password, 12);
+    const parsedHireDate = hireDate ? new Date(hireDate) : undefined;
     const user = await UserModel.create({
       username: username.trim(),
       passwordHash,
       role: role === 'admin' ? 'admin' : 'user',
+      department: DEPARTMENTS.includes(department as (typeof DEPARTMENTS)[number]) ? department : '',
+      hireDate: parsedHireDate && !Number.isNaN(parsedHireDate.getTime()) ? parsedHireDate : undefined,
+      gender: gender === 'male' || gender === 'female' ? gender : undefined,
     });
-    res.status(201).json({ id: String(user._id), username: user.username, role: user.role });
+    res.status(201).json({
+      id: String(user._id),
+      username: user.username,
+      role: user.role,
+      department: user.department,
+      hireDate: user.hireDate,
+      gender: user.gender,
+    });
   } catch (err) {
     console.error('[admin/createUser]', err);
     res.status(500).json({ error: 'Lỗi server.' });
@@ -79,11 +99,14 @@ export async function updateUser(req: Request, res: Response): Promise<void> {
   try {
     await ensureMongoConnected();
     const { id } = req.params;
-    const { role, isActive, password, paidLeaveTotal } = req.body as {
+    const { role, isActive, password, paidLeaveTotal, department, hireDate, gender } = req.body as {
       role?: string;
       isActive?: boolean;
       password?: string;
       paidLeaveTotal?: number;
+      department?: string;
+      hireDate?: string;
+      gender?: string;
     };
     const update: Record<string, unknown> = {};
     if (role === 'admin' || role === 'user') update.role = role;
@@ -91,6 +114,20 @@ export async function updateUser(req: Request, res: Response): Promise<void> {
     if (password) update.passwordHash = await bcrypt.hash(password, 12);
     if (typeof paidLeaveTotal === 'number' && Number.isFinite(paidLeaveTotal) && paidLeaveTotal >= 0) {
       update.paidLeaveTotal = paidLeaveTotal;
+    }
+    if (department !== undefined) {
+      update.department = DEPARTMENTS.includes(department as (typeof DEPARTMENTS)[number]) ? department : '';
+    }
+    if (hireDate !== undefined) {
+      if (hireDate === '') {
+        update.hireDate = null;
+      } else {
+        const parsed = new Date(hireDate);
+        if (!Number.isNaN(parsed.getTime())) update.hireDate = parsed;
+      }
+    }
+    if (gender !== undefined) {
+      update.gender = gender === 'male' || gender === 'female' ? gender : null;
     }
 
     const user = await UserModel.findByIdAndUpdate(id, update, {
@@ -124,7 +161,7 @@ export async function deleteUser(req: Request, res: Response): Promise<void> {
   }
 }
 
-const VALID_LEVELS = new Set(['guest', 'user', 'admin']);
+const VALID_TAB_VALUES = new Set<string>([...DEPARTMENTS, '*']);
 
 export async function getSettings(_req: Request, res: Response): Promise<void> {
   try {
@@ -144,19 +181,21 @@ export async function updateSettings(req: Request, res: Response): Promise<void>
   try {
     await ensureMongoConnected();
     const { tabAccess, botEnabled } = req.body as {
-      tabAccess?: Record<string, string>;
+      tabAccess?: Record<string, string[]>;
       botEnabled?: { zalo?: boolean };
     };
     let settings = await AdminSettingsModel.findOne();
     if (!settings) {
       settings = await AdminSettingsModel.create({
-        tabAccess: new Map(),
+        tabAccess: new Map(Object.entries(DEFAULT_TAB_ACCESS)),
         botEnabled: { zalo: true },
       });
     }
     if (tabAccess) {
-      const sanitized = Object.entries(tabAccess).filter(([, v]) => VALID_LEVELS.has(v));
-      settings.tabAccess = new Map(sanitized) as Map<string, 'guest' | 'user' | 'admin'>;
+      const sanitized = Object.entries(tabAccess)
+        .filter(([, v]) => Array.isArray(v))
+        .map(([k, v]) => [k, v.filter((d) => VALID_TAB_VALUES.has(d))] as [string, string[]]);
+      settings.tabAccess = new Map(sanitized);
     }
     if (botEnabled) {
       if (typeof botEnabled.zalo === 'boolean') settings.botEnabled.zalo = botEnabled.zalo;
