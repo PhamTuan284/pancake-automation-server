@@ -1,4 +1,4 @@
-import { LeaveRequestModel, type LeaveStatus } from '../../common/models/leaveRequestModel';
+import { LeaveRequestModel, type LeaveStatus, type LeaveSession } from '../../common/models/leaveRequestModel';
 import { UserModel } from '../../common/models/userModel';
 import { LEAVE_TYPES, LEAVE_TYPE_IDS, leaveQuotaDays, type LeaveType } from '../../common/leaveTypes';
 import { sendZaloText } from '../zalo-bot/zalo-bot.service';
@@ -23,20 +23,40 @@ function parseType(value: unknown): LeaveType {
   return type as LeaveType;
 }
 
+const SESSIONS: LeaveSession[] = ['full', 'morning', 'afternoon'];
+
+function parseSession(value: unknown): LeaveSession {
+  const session = String(value ?? 'full');
+  if (!SESSIONS.includes(session as LeaveSession)) {
+    throw new LeaveInputError('Buổi nghỉ không hợp lệ.');
+  }
+  return session as LeaveSession;
+}
+
 const LEAVE_TYPE_LABEL = new Map(LEAVE_TYPES.map((t) => [t.id, t.label]));
 
 export async function createLeaveRequest(
   auth: { username: string },
   raw: Record<string, unknown>
 ) {
-  const employeeName = String(raw.employeeName ?? '').trim() || auth.username;
+  // The employee name is always the logged-in account's own name — never
+  // taken from client input, so a request can't be filed under someone else.
+  const account = await UserModel.findOne({ username: auth.username }, 'fullName').lean();
+  const employeeName = account?.fullName || auth.username;
   const type = parseType(raw.type);
+  const session = parseSession(raw.session);
   const startDate = parseDate(raw.startDate, 'bắt đầu');
   const endDate = parseDate(raw.endDate, 'kết thúc');
   if (endDate < startDate) {
     throw new LeaveInputError('Ngày kết thúc phải sau ngày bắt đầu.');
   }
-  const days = Math.round((endDate.getTime() - startDate.getTime()) / MS_PER_DAY) + 1;
+  if (session !== 'full' && startDate.getTime() !== endDate.getTime()) {
+    throw new LeaveInputError('Nghỉ nửa ngày chỉ áp dụng cho 1 ngày duy nhất.');
+  }
+  const days =
+    session === 'full'
+      ? Math.round((endDate.getTime() - startDate.getTime()) / MS_PER_DAY) + 1
+      : 0.5;
   const reason = String(raw.reason ?? '').trim();
 
   const record = await LeaveRequestModel.create({
@@ -45,6 +65,7 @@ export async function createLeaveRequest(
     type,
     startDate,
     endDate,
+    session,
     days,
     reason,
     status: 'pending',
@@ -61,23 +82,34 @@ function formatVnDate(date: Date): string {
   return date.toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
 }
 
+const SESSION_SUFFIX: Record<LeaveSession, string> = {
+  full: '',
+  morning: ' (buổi sáng)',
+  afternoon: ' (buổi chiều)',
+};
+
+function formatRange(record: { startDate: Date; endDate: Date; session: LeaveSession; days: number }): string {
+  const range =
+    record.startDate.getTime() === record.endDate.getTime()
+      ? formatVnDate(record.startDate)
+      : `${formatVnDate(record.startDate)} → ${formatVnDate(record.endDate)}`;
+  return `${range}${SESSION_SUFFIX[record.session]} (${record.days} ngày)`;
+}
+
 function formatLeaveNotification(record: {
   employeeName: string;
   type: LeaveType;
   startDate: Date;
   endDate: Date;
+  session: LeaveSession;
   days: number;
   reason: string;
 }): string {
-  const range =
-    record.startDate.getTime() === record.endDate.getTime()
-      ? formatVnDate(record.startDate)
-      : `${formatVnDate(record.startDate)} → ${formatVnDate(record.endDate)}`;
   const lines = [
     '🌴 Đăng ký nghỉ phép mới — chờ duyệt',
     `Nhân viên: ${record.employeeName}`,
     `Loại: ${LEAVE_TYPE_LABEL.get(record.type) ?? record.type}`,
-    `Thời gian: ${range} (${record.days} ngày)`,
+    `Thời gian: ${formatRange(record)}`,
   ];
   if (record.reason) lines.push(`Lý do: ${record.reason}`);
   return lines.join('\n');
@@ -88,21 +120,18 @@ function formatDecisionNotification(record: {
   type: LeaveType;
   startDate: Date;
   endDate: Date;
+  session: LeaveSession;
   days: number;
   status: LeaveStatus;
   approvedBy?: string;
   rejectReason?: string;
 }): string {
-  const range =
-    record.startDate.getTime() === record.endDate.getTime()
-      ? formatVnDate(record.startDate)
-      : `${formatVnDate(record.startDate)} → ${formatVnDate(record.endDate)}`;
   const verb = record.status === 'approved' ? 'ĐÃ DUYỆT ✅' : 'TỪ CHỐI ❌';
   const lines = [
     `🌴 Nghỉ phép ${verb}`,
     `Nhân viên: ${record.employeeName}`,
     `Loại: ${LEAVE_TYPE_LABEL.get(record.type) ?? record.type}`,
-    `Thời gian: ${range} (${record.days} ngày)`,
+    `Thời gian: ${formatRange(record)}`,
   ];
   if (record.approvedBy) lines.push(`Người duyệt: ${record.approvedBy}`);
   if (record.status === 'rejected' && record.rejectReason) lines.push(`Lý do từ chối: ${record.rejectReason}`);

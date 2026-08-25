@@ -27,6 +27,7 @@ export async function login(req: Request, res: Response): Promise<void> {
     res.json({
       token,
       username: user.username,
+      fullName: user.fullName,
       role: user.role,
       department: user.department,
       gender: user.gender,
@@ -55,9 +56,10 @@ export async function listUsers(_req: Request, res: Response): Promise<void> {
 export async function createUser(req: Request, res: Response): Promise<void> {
   try {
     await ensureMongoConnected();
-    const { username, password, role, department, hireDate, gender } = req.body as {
+    const { username, password, fullName, role, department, hireDate, gender } = req.body as {
       username?: string;
       password?: string;
+      fullName?: string;
       role?: string;
       department?: string;
       hireDate?: string;
@@ -76,6 +78,7 @@ export async function createUser(req: Request, res: Response): Promise<void> {
     const user = await UserModel.create({
       username: username.trim(),
       passwordHash,
+      fullName: (fullName ?? '').trim(),
       role: role === 'admin' ? 'admin' : 'user',
       department: DEPARTMENTS.includes(department as (typeof DEPARTMENTS)[number]) ? department : '',
       hireDate: parsedHireDate && !Number.isNaN(parsedHireDate.getTime()) ? parsedHireDate : undefined,
@@ -84,6 +87,7 @@ export async function createUser(req: Request, res: Response): Promise<void> {
     res.status(201).json({
       id: String(user._id),
       username: user.username,
+      fullName: user.fullName,
       role: user.role,
       department: user.department,
       hireDate: user.hireDate,
@@ -99,7 +103,7 @@ export async function updateUser(req: Request, res: Response): Promise<void> {
   try {
     await ensureMongoConnected();
     const { id } = req.params;
-    const { role, isActive, password, paidLeaveTotal, department, hireDate, gender } = req.body as {
+    const { role, isActive, password, paidLeaveTotal, department, hireDate, gender, fullName } = req.body as {
       role?: string;
       isActive?: boolean;
       password?: string;
@@ -107,8 +111,10 @@ export async function updateUser(req: Request, res: Response): Promise<void> {
       department?: string;
       hireDate?: string;
       gender?: string;
+      fullName?: string;
     };
     const update: Record<string, unknown> = {};
+    if (fullName !== undefined) update.fullName = fullName.trim();
     if (role === 'admin' || role === 'user') update.role = role;
     if (typeof isActive === 'boolean') update.isActive = isActive;
     if (password) update.passwordHash = await bcrypt.hash(password, 12);

@@ -20,6 +20,7 @@ export type Gender = 'male' | 'female';
 export type UserDoc = {
   username: string;
   passwordHash: string;
+  fullName: string;
   role: UserRole;
   isActive: boolean;
   paidLeaveTotal: number;
@@ -33,6 +34,7 @@ const userSchema = new mongoose.Schema<UserDoc>(
   {
     username: { type: String, required: true, unique: true, trim: true },
     passwordHash: { type: String, required: true },
+    fullName: { type: String, default: '', trim: true },
     role: { type: String, enum: ['admin', 'user'], default: 'user' },
     isActive: { type: Boolean, default: true },
     paidLeaveTotal: { type: Number, default: 12, min: 0 },

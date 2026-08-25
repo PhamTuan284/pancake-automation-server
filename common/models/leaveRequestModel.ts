@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { LEAVE_TYPE_IDS, type LeaveType } from '../leaveTypes';
 
 export type LeaveStatus = 'pending' | 'approved' | 'rejected';
+export type LeaveSession = 'full' | 'morning' | 'afternoon';
 
 export type LeaveRequestDoc = {
   username: string;
@@ -9,6 +10,7 @@ export type LeaveRequestDoc = {
   type: LeaveType;
   startDate: Date;
   endDate: Date;
+  session: LeaveSession;
   days: number;
   reason: string;
   status: LeaveStatus;
@@ -25,6 +27,7 @@ const leaveRequestSchema = new mongoose.Schema<LeaveRequestDoc>(
     type: { type: String, enum: LEAVE_TYPE_IDS, default: 'annual' },
     startDate: { type: Date, required: true },
     endDate: { type: Date, required: true },
+    session: { type: String, enum: ['full', 'morning', 'afternoon'], default: 'full' },
     days: { type: Number, required: true, min: 0.5 },
     reason: { type: String, default: '', trim: true },
     // Records created before the approval workflow existed had no concept
