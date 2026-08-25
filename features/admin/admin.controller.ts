@@ -145,13 +145,13 @@ export async function updateSettings(req: Request, res: Response): Promise<void>
     await ensureMongoConnected();
     const { tabAccess, botEnabled } = req.body as {
       tabAccess?: Record<string, string>;
-      botEnabled?: { telegram?: boolean; zalo?: boolean };
+      botEnabled?: { zalo?: boolean };
     };
     let settings = await AdminSettingsModel.findOne();
     if (!settings) {
       settings = await AdminSettingsModel.create({
         tabAccess: new Map(),
-        botEnabled: { telegram: true, zalo: true },
+        botEnabled: { zalo: true },
       });
     }
     if (tabAccess) {
@@ -159,7 +159,6 @@ export async function updateSettings(req: Request, res: Response): Promise<void>
       settings.tabAccess = new Map(sanitized) as Map<string, 'guest' | 'user' | 'admin'>;
     }
     if (botEnabled) {
-      if (typeof botEnabled.telegram === 'boolean') settings.botEnabled.telegram = botEnabled.telegram;
       if (typeof botEnabled.zalo === 'boolean') settings.botEnabled.zalo = botEnabled.zalo;
     }
     await settings.save();

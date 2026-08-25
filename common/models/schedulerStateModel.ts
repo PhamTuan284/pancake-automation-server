@@ -4,7 +4,7 @@ import { useMongo } from '../mongo';
 /**
  * Persisted "last sent" dates for the daily/weekly bot schedulers, so a
  * server restart inside the send window does not double-send. Keys are
- * e.g. 'telegram-sales', 'zalo-sales', 'zalo-revenue', 'zalo-team-sales'.
+ * e.g. 'zalo-sales', 'zalo-revenue', 'zalo-team-sales'.
  */
 
 type SchedulerStateDoc = {

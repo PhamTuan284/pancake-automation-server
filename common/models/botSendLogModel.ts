@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import { useMongo } from '../mongo';
 
 /**
- * Persisted send history for the Telegram/Zalo bots, so the UI log panel
+ * Persisted send history for the Zalo bot, so the UI log panel
  * survives server restarts. Falls back to an in-memory ring buffer when
  * Mongo is not configured.
  */
@@ -17,7 +17,7 @@ export type BotSendLogEntry = {
   preview: string;
 };
 
-type BotName = 'telegram' | 'zalo';
+type BotName = 'zalo';
 
 const LOG_TTL_SECONDS = 30 * 24 * 60 * 60;
 const MAX_LOGS = 50;
@@ -50,7 +50,7 @@ schema.index({ bot: 1, sentAt: -1 });
 
 const BotSendLogModel = mongoose.model<BotSendLogDoc>('BotSendLog', schema);
 
-const memLogs: Record<BotName, BotSendLogEntry[]> = { telegram: [], zalo: [] };
+const memLogs: Record<BotName, BotSendLogEntry[]> = { zalo: [] };
 
 export function addBotSendLog(
   bot: BotName,

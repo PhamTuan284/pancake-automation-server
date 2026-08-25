@@ -6,7 +6,6 @@ export type AdminSettingsDoc = {
   /** Minimum role required to see each tab. Unset keys default to 'guest' (everyone). */
   tabAccess: Map<string, TabAccessLevel>;
   botEnabled: {
-    telegram: boolean;
     zalo: boolean;
   };
 };
@@ -19,7 +18,6 @@ const adminSettingsSchema = new mongoose.Schema<AdminSettingsDoc>(
       default: () => new Map(),
     },
     botEnabled: {
-      telegram: { type: Boolean, default: true },
       zalo: { type: Boolean, default: true },
     },
   },
@@ -36,7 +34,7 @@ export async function getAdminSettings(): Promise<AdminSettingsDoc> {
   if (!settings) {
     settings = await AdminSettingsModel.create({
       tabAccess: new Map(),
-      botEnabled: { telegram: true, zalo: true },
+      botEnabled: { zalo: true },
     });
   }
   return settings;

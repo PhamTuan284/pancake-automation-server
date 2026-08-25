@@ -1,7 +1,6 @@
 import './features/pancake-einvoice/loadServerEnv';
 import http from 'http';
 import { createApp } from './createApp';
-import { startTelegramDailyScheduler } from './features/telegram-bot/telegram-bot.service';
 import { startZaloDailyScheduler } from './features/zalo-bot/zalo-bot.service';
 import { seedFirstAdmin } from './common/seedAdmin';
 import { syncWebhookEventIndexes } from './common/models/PancakeWebhookEvent';
@@ -19,7 +18,6 @@ server.on('listening', () => {
   const addr = server.address();
   const bound = typeof addr === 'object' && addr ? addr.port : port;
   console.log(`Pancake automation API: http://localhost:${bound}`);
-  startTelegramDailyScheduler();
   startZaloDailyScheduler();
   void seedFirstAdmin();
   void syncWebhookEventIndexes();

@@ -2,7 +2,7 @@ import https from 'https';
 
 /**
  * Minimal JSON POST over the native https module (no extra dependency).
- * Shared by the Telegram and Zalo bot services.
+ * Used by the Zalo bot service.
  */
 export function httpsPost(
   url: string,
