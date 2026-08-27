@@ -1,9 +1,7 @@
 import { LeaveRequestModel, type LeaveStatus, type LeaveSession } from '../../common/models/leaveRequestModel';
 import { UserModel } from '../../common/models/userModel';
-import { LEAVE_TYPES, LEAVE_TYPE_IDS, leaveQuotaDays, type LeaveType } from '../../common/leaveTypes';
+import { LEAVE_TYPES, LEAVE_TYPE_IDS, countLeaveDays, leaveQuotaDays, type LeaveType } from '../../common/leaveTypes';
 import { sendZaloText } from '../zalo-bot/zalo-bot.service';
-
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 export class LeaveInputError extends Error {}
 
@@ -41,8 +39,9 @@ export async function createLeaveRequest(
 ) {
   // The employee name is always the logged-in account's own name — never
   // taken from client input, so a request can't be filed under someone else.
-  const account = await UserModel.findOne({ username: auth.username }, 'fullName').lean();
+  const account = await UserModel.findOne({ username: auth.username }, 'fullName department').lean();
   const employeeName = account?.fullName || auth.username;
+  const department = account?.department || '';
   const type = parseType(raw.type);
   const session = parseSession(raw.session);
   const startDate = parseDate(raw.startDate, 'bắt đầu');
@@ -53,15 +52,20 @@ export async function createLeaveRequest(
   if (session !== 'full' && startDate.getTime() !== endDate.getTime()) {
     throw new LeaveInputError('Nghỉ nửa ngày chỉ áp dụng cho 1 ngày duy nhất.');
   }
-  const days =
-    session === 'full'
-      ? Math.round((endDate.getTime() - startDate.getTime()) / MS_PER_DAY) + 1
-      : 0.5;
+  const isSunday = startDate.getUTCDay() === 0;
+  if (session !== 'full' && isSunday) {
+    throw new LeaveInputError('Chủ nhật không tính vào ngày nghỉ.');
+  }
+  const days = session === 'full' ? countLeaveDays(startDate, endDate) : 0.5;
+  if (days <= 0) {
+    throw new LeaveInputError('Khoảng thời gian đã chọn không có ngày nào được tính (Chủ nhật không tính vào ngày nghỉ).');
+  }
   const reason = String(raw.reason ?? '').trim();
 
   const record = await LeaveRequestModel.create({
     username: auth.username,
     employeeName,
+    department,
     type,
     startDate,
     endDate,
@@ -96,8 +100,17 @@ function formatRange(record: { startDate: Date; endDate: Date; session: LeaveSes
   return `${range}${SESSION_SUFFIX[record.session]} (${record.days} ngày)`;
 }
 
+/** "Nguyễn Văn A (username)" when a full name is on file, else just the username. */
+function formatEmployee(record: { employeeName: string; username: string }): string {
+  return record.employeeName && record.employeeName !== record.username
+    ? `${record.employeeName} (${record.username})`
+    : record.username;
+}
+
 function formatLeaveNotification(record: {
+  username: string;
   employeeName: string;
+  department?: string;
   type: LeaveType;
   startDate: Date;
   endDate: Date;
@@ -107,16 +120,21 @@ function formatLeaveNotification(record: {
 }): string {
   const lines = [
     '🌴 Đăng ký nghỉ phép mới — chờ duyệt',
-    `Nhân viên: ${record.employeeName}`,
-    `Loại: ${LEAVE_TYPE_LABEL.get(record.type) ?? record.type}`,
-    `Thời gian: ${formatRange(record)}`,
+    `Nhân viên: ${formatEmployee(record)}`,
   ];
+  if (record.department) lines.push(`Phòng ban: ${record.department}`);
+  lines.push(
+    `Loại: ${LEAVE_TYPE_LABEL.get(record.type) ?? record.type}`,
+    `Thời gian: ${formatRange(record)}`
+  );
   if (record.reason) lines.push(`Lý do: ${record.reason}`);
   return lines.join('\n');
 }
 
 function formatDecisionNotification(record: {
+  username: string;
   employeeName: string;
+  department?: string;
   type: LeaveType;
   startDate: Date;
   endDate: Date;
@@ -129,10 +147,13 @@ function formatDecisionNotification(record: {
   const verb = record.status === 'approved' ? 'ĐÃ DUYỆT ✅' : 'TỪ CHỐI ❌';
   const lines = [
     `🌴 Nghỉ phép ${verb}`,
-    `Nhân viên: ${record.employeeName}`,
-    `Loại: ${LEAVE_TYPE_LABEL.get(record.type) ?? record.type}`,
-    `Thời gian: ${formatRange(record)}`,
+    `Nhân viên: ${formatEmployee(record)}`,
   ];
+  if (record.department) lines.push(`Phòng ban: ${record.department}`);
+  lines.push(
+    `Loại: ${LEAVE_TYPE_LABEL.get(record.type) ?? record.type}`,
+    `Thời gian: ${formatRange(record)}`
+  );
   if (record.approvedBy) lines.push(`Người duyệt: ${record.approvedBy}`);
   if (record.status === 'rejected' && record.rejectReason) lines.push(`Lý do từ chối: ${record.rejectReason}`);
   return lines.join('\n');

@@ -12,6 +12,23 @@ export type LeaveType = (typeof LEAVE_TYPES)[number]['id'];
 
 export const LEAVE_TYPE_IDS: LeaveType[] = LEAVE_TYPES.map((t) => t.id);
 
+/**
+ * Counts calendar days from `start` to `end` inclusive, excluding Sundays —
+ * Sunday is already everyone's weekly day off, so it never counts against
+ * leave quota. Uses UTC getters/setters so the result is independent of the
+ * server's local timezone (dates come in as UTC-midnight-anchored
+ * `YYYY-MM-DD` values).
+ */
+export function countLeaveDays(start: Date, end: Date): number {
+  let days = 0;
+  const cursor = new Date(start);
+  while (cursor.getTime() <= end.getTime()) {
+    if (cursor.getUTCDay() !== 0) days += 1;
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return days;
+}
+
 const MS_PER_YEAR = 365.25 * 24 * 60 * 60 * 1000;
 
 /** Years of service, used to size the "nghỉ mát" (vacation) quota. */

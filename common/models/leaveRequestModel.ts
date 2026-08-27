@@ -7,6 +7,7 @@ export type LeaveSession = 'full' | 'morning' | 'afternoon';
 export type LeaveRequestDoc = {
   username: string;
   employeeName: string;
+  department: string;
   type: LeaveType;
   startDate: Date;
   endDate: Date;
@@ -24,6 +25,7 @@ const leaveRequestSchema = new mongoose.Schema<LeaveRequestDoc>(
   {
     username: { type: String, required: true, trim: true },
     employeeName: { type: String, required: true, trim: true },
+    department: { type: String, default: '', trim: true },
     type: { type: String, enum: LEAVE_TYPE_IDS, default: 'annual' },
     startDate: { type: Date, required: true },
     endDate: { type: Date, required: true },
