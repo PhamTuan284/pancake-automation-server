@@ -1,6 +1,7 @@
 import { LeaveRequestModel, type LeaveStatus, type LeaveSession } from '../../common/models/leaveRequestModel';
 import { UserModel } from '../../common/models/userModel';
 import { LEAVE_TYPES, LEAVE_TYPE_IDS, countLeaveDays, leaveQuotaDays, type LeaveType } from '../../common/leaveTypes';
+import { logAudit } from '../../common/models/auditLogModel';
 import { sendZaloText } from '../zalo-bot/zalo-bot.service';
 
 export class LeaveInputError extends Error {}
@@ -78,6 +79,7 @@ export async function createLeaveRequest(
   void sendZaloText(formatLeaveNotification(record)).catch((err) => {
     console.error('[leave] Failed to notify Zalo group:', err);
   });
+  logAudit(auth.username, 'leave_request', `${LEAVE_TYPE_LABEL.get(type) ?? type} · ${formatRange(record)}`);
 
   return record;
 }
@@ -258,6 +260,11 @@ export async function decideLeaveRequest(
   void sendZaloText(formatDecisionNotification(record)).catch((err) => {
     console.error('[leave] Failed to notify Zalo group:', err);
   });
+  logAudit(
+    admin.username,
+    decision === 'approved' ? 'leave_approve' : 'leave_reject',
+    `${record.employeeName} · ${LEAVE_TYPE_LABEL.get(record.type) ?? record.type} · ${formatRange(record)}`
+  );
 
   return record;
 }
@@ -273,5 +280,6 @@ export async function deleteLeaveRequest(id: string, auth: { username: string; r
     }
   }
   await record.deleteOne();
+  logAudit(auth.username, 'leave_cancel', `${record.employeeName} · ${LEAVE_TYPE_LABEL.get(record.type) ?? record.type} · ${formatRange(record)}`);
   return true;
 }

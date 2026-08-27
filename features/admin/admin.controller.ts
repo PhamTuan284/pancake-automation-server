@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { UserModel, DEPARTMENTS } from '../../common/models/userModel';
 import { AdminSettingsModel, getAdminSettings, DEFAULT_TAB_ACCESS } from '../../common/models/adminSettingsModel';
+import { logAudit, listAuditLogs } from '../../common/models/auditLogModel';
 import { ensureMongoConnected } from '../../common/mongo';
 import { getJwtSecret } from '../../common/auth.middleware';
 
@@ -24,6 +25,7 @@ export async function login(req: Request, res: Response): Promise<void> {
       getJwtSecret(),
       { expiresIn: '24h' }
     );
+    logAudit(user.username, 'login');
     res.json({
       token,
       username: user.username,
@@ -40,6 +42,40 @@ export async function login(req: Request, res: Response): Promise<void> {
 
 export function getMe(req: Request, res: Response): void {
   res.json({ username: req.auth!.username, role: req.auth!.role });
+}
+
+export async function changeOwnPassword(req: Request, res: Response): Promise<void> {
+  try {
+    await ensureMongoConnected();
+    const { currentPassword, newPassword } = req.body as {
+      currentPassword?: string;
+      newPassword?: string;
+    };
+    if (!currentPassword || !newPassword) {
+      res.status(400).json({ error: 'Cần nhập mật khẩu hiện tại và mật khẩu mới.' });
+      return;
+    }
+    if (newPassword.length < 6) {
+      res.status(400).json({ error: 'Mật khẩu mới phải có ít nhất 6 ký tự.' });
+      return;
+    }
+    const user = await UserModel.findById(req.auth!.userId);
+    if (!user) {
+      res.status(404).json({ error: 'Không tìm thấy người dùng.' });
+      return;
+    }
+    if (!(await bcrypt.compare(currentPassword, user.passwordHash))) {
+      res.status(401).json({ error: 'Mật khẩu hiện tại không đúng.' });
+      return;
+    }
+    user.passwordHash = await bcrypt.hash(newPassword, 12);
+    await user.save();
+    logAudit(user.username, 'change_own_password');
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[admin/changeOwnPassword]', err);
+    res.status(500).json({ error: 'Lỗi server.' });
+  }
 }
 
 export async function listUsers(_req: Request, res: Response): Promise<void> {
@@ -84,6 +120,7 @@ export async function createUser(req: Request, res: Response): Promise<void> {
       hireDate: parsedHireDate && !Number.isNaN(parsedHireDate.getTime()) ? parsedHireDate : undefined,
       gender: gender === 'male' || gender === 'female' ? gender : undefined,
     });
+    logAudit(req.auth!.username, 'create_user', `Tạo người dùng "${user.username}"`);
     res.status(201).json({
       id: String(user._id),
       username: user.username,
@@ -144,6 +181,8 @@ export async function updateUser(req: Request, res: Response): Promise<void> {
       res.status(404).json({ error: 'Không tìm thấy người dùng.' });
       return;
     }
+    const changedFields = Object.keys(update).map((k) => (k === 'passwordHash' ? 'password' : k));
+    logAudit(req.auth!.username, 'update_user', `Cập nhật người dùng "${user.username}" (${changedFields.join(', ')})`);
     res.json(user);
   } catch (err) {
     console.error('[admin/updateUser]', err);
@@ -159,7 +198,8 @@ export async function deleteUser(req: Request, res: Response): Promise<void> {
       res.status(400).json({ error: 'Không thể xóa tài khoản đang đăng nhập.' });
       return;
     }
-    await UserModel.findByIdAndDelete(id);
+    const deleted = await UserModel.findByIdAndDelete(id);
+    if (deleted) logAudit(req.auth!.username, 'delete_user', `Xóa người dùng "${deleted.username}"`);
     res.json({ ok: true });
   } catch (err) {
     console.error('[admin/deleteUser]', err);
@@ -207,6 +247,7 @@ export async function updateSettings(req: Request, res: Response): Promise<void>
       if (typeof botEnabled.zalo === 'boolean') settings.botEnabled.zalo = botEnabled.zalo;
     }
     await settings.save();
+    logAudit(req.auth!.username, 'update_settings', 'Cập nhật phân quyền tab / cài đặt bot');
     res.json({
       tabAccess: Object.fromEntries(settings.tabAccess),
       botEnabled: settings.botEnabled,
@@ -214,5 +255,16 @@ export async function updateSettings(req: Request, res: Response): Promise<void>
   } catch (err) {
     console.error('[admin/updateSettings]', err);
     res.status(500).json({ error: 'Lỗi server.' });
+  }
+}
+
+export async function getAuditLogs(_req: Request, res: Response): Promise<void> {
+  try {
+    await ensureMongoConnected();
+    const logs = await listAuditLogs();
+    res.json({ ok: true, logs });
+  } catch (err) {
+    console.error('[admin/getAuditLogs]', err);
+    res.status(500).json({ ok: false, error: 'Lỗi server.' });
   }
 }
