@@ -1,6 +1,14 @@
 import { LeaveRequestModel, type LeaveStatus, type LeaveSession } from '../../common/models/leaveRequestModel';
 import { UserModel } from '../../common/models/userModel';
-import { LEAVE_TYPES, LEAVE_TYPE_IDS, countLeaveDays, leaveQuotaDays, type LeaveType } from '../../common/leaveTypes';
+import {
+  LEAVE_TYPES,
+  LEAVE_TYPE_IDS,
+  NO_QUOTA_LEAVE_TYPES,
+  TIME_RANGE_LEAVE_TYPES,
+  countLeaveDays,
+  leaveQuotaDays,
+  type LeaveType,
+} from '../../common/leaveTypes';
 import { logAudit } from '../../common/models/auditLogModel';
 import { sendZaloText } from '../zalo-bot/zalo-bot.service';
 
@@ -34,6 +42,16 @@ function parseSession(value: unknown): LeaveSession {
 
 const LEAVE_TYPE_LABEL = new Map(LEAVE_TYPES.map((t) => [t.id, t.label]));
 
+const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+function parseTime(value: unknown, label: string): string {
+  const time = String(value ?? '').trim();
+  if (!TIME_RE.test(time)) {
+    throw new LeaveInputError(`Vui lòng nhập "${label}" hợp lệ (HH:mm).`);
+  }
+  return time;
+}
+
 export async function createLeaveRequest(
   auth: { username: string },
   raw: Record<string, unknown>
@@ -44,24 +62,31 @@ export async function createLeaveRequest(
   const employeeName = account?.fullName || auth.username;
   const department = account?.department || '';
   const type = parseType(raw.type);
-  const session = parseSession(raw.session);
+  const isNoQuota = NO_QUOTA_LEAVE_TYPES.has(type);
+  const session = isNoQuota ? 'full' : parseSession(raw.session);
   const startDate = parseDate(raw.startDate, 'bắt đầu');
-  const endDate = parseDate(raw.endDate, 'kết thúc');
+  const endDate = isNoQuota ? startDate : parseDate(raw.endDate, 'kết thúc');
   if (endDate < startDate) {
     throw new LeaveInputError('Ngày kết thúc phải sau ngày bắt đầu.');
   }
-  if (session !== 'full' && startDate.getTime() !== endDate.getTime()) {
+  if (!isNoQuota && session !== 'full' && startDate.getTime() !== endDate.getTime()) {
     throw new LeaveInputError('Nghỉ nửa ngày chỉ áp dụng cho 1 ngày duy nhất.');
   }
   const isSunday = startDate.getUTCDay() === 0;
-  if (session !== 'full' && isSunday) {
+  if (!isNoQuota && session !== 'full' && isSunday) {
     throw new LeaveInputError('Chủ nhật không tính vào ngày nghỉ.');
   }
-  const days = session === 'full' ? countLeaveDays(startDate, endDate) : 0.5;
-  if (days <= 0) {
+  // "Đi muộn"/"Về sớm" are permission requests, not day-off absences — they
+  // never consume leave quota, so they're exempt from the day-count check.
+  const days = isNoQuota ? 0 : session === 'full' ? countLeaveDays(startDate, endDate) : 0.5;
+  if (!isNoQuota && days <= 0) {
     throw new LeaveInputError('Khoảng thời gian đã chọn không có ngày nào được tính (Chủ nhật không tính vào ngày nghỉ).');
   }
   const reason = String(raw.reason ?? '').trim();
+
+  const needsTimeRange = TIME_RANGE_LEAVE_TYPES.has(type);
+  const checkInTime = needsTimeRange ? parseTime(raw.checkInTime, 'giờ vào làm') : undefined;
+  const checkOutTime = needsTimeRange ? parseTime(raw.checkOutTime, 'giờ về') : undefined;
 
   const record = await LeaveRequestModel.create({
     username: auth.username,
@@ -72,6 +97,8 @@ export async function createLeaveRequest(
     endDate,
     session,
     days,
+    checkInTime,
+    checkOutTime,
     reason,
     status: 'pending',
   });
@@ -94,11 +121,12 @@ const SESSION_SUFFIX: Record<LeaveSession, string> = {
   afternoon: ' (buổi chiều)',
 };
 
-function formatRange(record: { startDate: Date; endDate: Date; session: LeaveSession; days: number }): string {
+function formatRange(record: { startDate: Date; endDate: Date; session: LeaveSession; days: number; type: LeaveType }): string {
   const range =
     record.startDate.getTime() === record.endDate.getTime()
       ? formatVnDate(record.startDate)
       : `${formatVnDate(record.startDate)} → ${formatVnDate(record.endDate)}`;
+  if (NO_QUOTA_LEAVE_TYPES.has(record.type)) return range;
   return `${range}${SESSION_SUFFIX[record.session]} (${record.days} ngày)`;
 }
 
@@ -118,6 +146,8 @@ function formatLeaveNotification(record: {
   endDate: Date;
   session: LeaveSession;
   days: number;
+  checkInTime?: string;
+  checkOutTime?: string;
   reason: string;
 }): string {
   const lines = [
@@ -129,6 +159,9 @@ function formatLeaveNotification(record: {
     `Loại: ${LEAVE_TYPE_LABEL.get(record.type) ?? record.type}`,
     `Thời gian: ${formatRange(record)}`
   );
+  if (record.checkInTime || record.checkOutTime) {
+    lines.push(`Giờ vào làm: ${record.checkInTime ?? '—'} · Giờ về: ${record.checkOutTime ?? '—'}`);
+  }
   if (record.reason) lines.push(`Lý do: ${record.reason}`);
   return lines.join('\n');
 }
@@ -142,6 +175,8 @@ function formatDecisionNotification(record: {
   endDate: Date;
   session: LeaveSession;
   days: number;
+  checkInTime?: string;
+  checkOutTime?: string;
   status: LeaveStatus;
   approvedBy?: string;
   rejectReason?: string;
@@ -156,6 +191,9 @@ function formatDecisionNotification(record: {
     `Loại: ${LEAVE_TYPE_LABEL.get(record.type) ?? record.type}`,
     `Thời gian: ${formatRange(record)}`
   );
+  if (record.checkInTime || record.checkOutTime) {
+    lines.push(`Giờ vào làm: ${record.checkInTime ?? '—'} · Giờ về: ${record.checkOutTime ?? '—'}`);
+  }
   if (record.approvedBy) lines.push(`Người duyệt: ${record.approvedBy}`);
   if (record.status === 'rejected' && record.rejectReason) lines.push(`Lý do từ chối: ${record.rejectReason}`);
   return lines.join('\n');
@@ -211,7 +249,7 @@ function buildBalance(
   return {
     username: user.username,
     department: user.department ?? '',
-    types: LEAVE_TYPES.map(({ id, label }) => {
+    types: LEAVE_TYPES.filter(({ id }) => !NO_QUOTA_LEAVE_TYPES.has(id)).map(({ id, label }) => {
       const quota = leaveQuotaDays(id, user);
       const usedDays = usedByType?.get(id) ?? 0;
       return { type: id, label, quota, usedDays, remainingDays: Math.max(quota - usedDays, 0) };

@@ -13,6 +13,8 @@ export type LeaveRequestDoc = {
   endDate: Date;
   session: LeaveSession;
   days: number;
+  checkInTime?: string;
+  checkOutTime?: string;
   reason: string;
   status: LeaveStatus;
   approvedBy?: string;
@@ -30,7 +32,12 @@ const leaveRequestSchema = new mongoose.Schema<LeaveRequestDoc>(
     startDate: { type: Date, required: true },
     endDate: { type: Date, required: true },
     session: { type: String, enum: ['full', 'morning', 'afternoon'], default: 'full' },
-    days: { type: Number, required: true, min: 0.5 },
+    // 0 is valid for "đi muộn"/"về sớm" — they don't consume day-off quota.
+    // Real leave requests are validated in leave.service.ts to be >= 0.5.
+    days: { type: Number, required: true, min: 0 },
+    // HH:mm strings, only set for "Đi làm khác giờ chuẩn" requests.
+    checkInTime: { type: String },
+    checkOutTime: { type: String },
     reason: { type: String, default: '', trim: true },
     // Records created before the approval workflow existed had no concept
     // of pending/rejected, so they default to 'approved' on read — new
