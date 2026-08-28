@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { UserModel, DEPARTMENTS } from '../../common/models/userModel';
+import { UserModel, DEPARTMENTS, WORK_MODES } from '../../common/models/userModel';
 import { AdminSettingsModel, getAdminSettings, DEFAULT_TAB_ACCESS } from '../../common/models/adminSettingsModel';
 import { logAudit, listAuditLogs } from '../../common/models/auditLogModel';
 import { ensureMongoConnected } from '../../common/mongo';
@@ -92,7 +92,7 @@ export async function listUsers(_req: Request, res: Response): Promise<void> {
 export async function createUser(req: Request, res: Response): Promise<void> {
   try {
     await ensureMongoConnected();
-    const { username, password, fullName, role, department, hireDate, gender } = req.body as {
+    const { username, password, fullName, role, department, hireDate, gender, workMode } = req.body as {
       username?: string;
       password?: string;
       fullName?: string;
@@ -100,6 +100,7 @@ export async function createUser(req: Request, res: Response): Promise<void> {
       department?: string;
       hireDate?: string;
       gender?: string;
+      workMode?: string;
     };
     if (!username?.trim() || !password) {
       res.status(400).json({ error: 'Cần nhập tên đăng nhập và mật khẩu.' });
@@ -119,6 +120,7 @@ export async function createUser(req: Request, res: Response): Promise<void> {
       department: DEPARTMENTS.includes(department as (typeof DEPARTMENTS)[number]) ? department : '',
       hireDate: parsedHireDate && !Number.isNaN(parsedHireDate.getTime()) ? parsedHireDate : undefined,
       gender: gender === 'male' || gender === 'female' ? gender : undefined,
+      workMode: WORK_MODES.includes(workMode as (typeof WORK_MODES)[number]) ? workMode : undefined,
     });
     logAudit(req.auth!.username, 'create_user', `Tạo người dùng "${user.username}"`);
     res.status(201).json({
@@ -129,6 +131,7 @@ export async function createUser(req: Request, res: Response): Promise<void> {
       department: user.department,
       hireDate: user.hireDate,
       gender: user.gender,
+      workMode: user.workMode,
     });
   } catch (err) {
     console.error('[admin/createUser]', err);
@@ -136,42 +139,54 @@ export async function createUser(req: Request, res: Response): Promise<void> {
   }
 }
 
+type UserUpdateInput = {
+  role?: string;
+  isActive?: boolean;
+  password?: string;
+  paidLeaveTotal?: number;
+  department?: string;
+  hireDate?: string;
+  gender?: string;
+  workMode?: string;
+  fullName?: string;
+};
+
+/** Builds a Mongo update object from partial user-edit input; only fields present in `body` are included. */
+async function buildUserUpdate(body: UserUpdateInput): Promise<Record<string, unknown>> {
+  const { role, isActive, password, paidLeaveTotal, department, hireDate, gender, workMode, fullName } = body;
+  const update: Record<string, unknown> = {};
+  if (fullName !== undefined) update.fullName = fullName.trim();
+  if (role === 'admin' || role === 'user') update.role = role;
+  if (typeof isActive === 'boolean') update.isActive = isActive;
+  if (password) update.passwordHash = await bcrypt.hash(password, 12);
+  if (typeof paidLeaveTotal === 'number' && Number.isFinite(paidLeaveTotal) && paidLeaveTotal >= 0) {
+    update.paidLeaveTotal = paidLeaveTotal;
+  }
+  if (department !== undefined) {
+    update.department = DEPARTMENTS.includes(department as (typeof DEPARTMENTS)[number]) ? department : '';
+  }
+  if (hireDate !== undefined) {
+    if (hireDate === '') {
+      update.hireDate = null;
+    } else {
+      const parsed = new Date(hireDate);
+      if (!Number.isNaN(parsed.getTime())) update.hireDate = parsed;
+    }
+  }
+  if (gender !== undefined) {
+    update.gender = gender === 'male' || gender === 'female' ? gender : null;
+  }
+  if (workMode !== undefined) {
+    update.workMode = WORK_MODES.includes(workMode as (typeof WORK_MODES)[number]) ? workMode : null;
+  }
+  return update;
+}
+
 export async function updateUser(req: Request, res: Response): Promise<void> {
   try {
     await ensureMongoConnected();
     const { id } = req.params;
-    const { role, isActive, password, paidLeaveTotal, department, hireDate, gender, fullName } = req.body as {
-      role?: string;
-      isActive?: boolean;
-      password?: string;
-      paidLeaveTotal?: number;
-      department?: string;
-      hireDate?: string;
-      gender?: string;
-      fullName?: string;
-    };
-    const update: Record<string, unknown> = {};
-    if (fullName !== undefined) update.fullName = fullName.trim();
-    if (role === 'admin' || role === 'user') update.role = role;
-    if (typeof isActive === 'boolean') update.isActive = isActive;
-    if (password) update.passwordHash = await bcrypt.hash(password, 12);
-    if (typeof paidLeaveTotal === 'number' && Number.isFinite(paidLeaveTotal) && paidLeaveTotal >= 0) {
-      update.paidLeaveTotal = paidLeaveTotal;
-    }
-    if (department !== undefined) {
-      update.department = DEPARTMENTS.includes(department as (typeof DEPARTMENTS)[number]) ? department : '';
-    }
-    if (hireDate !== undefined) {
-      if (hireDate === '') {
-        update.hireDate = null;
-      } else {
-        const parsed = new Date(hireDate);
-        if (!Number.isNaN(parsed.getTime())) update.hireDate = parsed;
-      }
-    }
-    if (gender !== undefined) {
-      update.gender = gender === 'male' || gender === 'female' ? gender : null;
-    }
+    const update = await buildUserUpdate(req.body as UserUpdateInput);
 
     const user = await UserModel.findByIdAndUpdate(id, update, {
       new: true,
@@ -186,6 +201,35 @@ export async function updateUser(req: Request, res: Response): Promise<void> {
     res.json(user);
   } catch (err) {
     console.error('[admin/updateUser]', err);
+    res.status(500).json({ error: 'Lỗi server.' });
+  }
+}
+
+/** Bulk edit: applies the same partial update to many users at once (no password/fullName — those don't make sense shared across people). */
+export async function bulkUpdateUsers(req: Request, res: Response): Promise<void> {
+  try {
+    await ensureMongoConnected();
+    const { ids, ...body } = req.body as UserUpdateInput & { ids?: string[] };
+    if (!Array.isArray(ids) || ids.length === 0) {
+      res.status(400).json({ error: 'Cần chọn ít nhất 1 người dùng.' });
+      return;
+    }
+    const update = await buildUserUpdate({ ...body, password: undefined, fullName: undefined });
+    if (Object.keys(update).length === 0) {
+      res.status(400).json({ error: 'Chưa chọn thay đổi nào để áp dụng.' });
+      return;
+    }
+    // Never let a bulk action lock the acting admin out of their own account.
+    const targetIds = ids.filter((targetId) => targetId !== req.auth!.userId);
+    const result = await UserModel.updateMany({ _id: { $in: targetIds } }, update);
+    logAudit(
+      req.auth!.username,
+      'bulk_update_users',
+      `Cập nhật hàng loạt ${result.modifiedCount} người dùng (${Object.keys(update).join(', ')})`
+    );
+    res.json({ ok: true, matched: result.matchedCount, modified: result.modifiedCount });
+  } catch (err) {
+    console.error('[admin/bulkUpdateUsers]', err);
     res.status(500).json({ error: 'Lỗi server.' });
   }
 }

@@ -17,6 +17,16 @@ export type Department = (typeof DEPARTMENTS)[number];
 
 export type Gender = 'male' | 'female';
 
+export const WORK_MODES = [
+  'offline_team_live',
+  'offline_team_office',
+  'offline_team_media',
+  'offline_khac',
+  'online',
+] as const;
+
+export type WorkMode = (typeof WORK_MODES)[number];
+
 export type UserDoc = {
   username: string;
   passwordHash: string;
@@ -27,6 +37,7 @@ export type UserDoc = {
   department: string;
   hireDate?: Date;
   gender?: Gender;
+  workMode?: WorkMode;
   createdAt: Date;
 };
 
@@ -41,6 +52,7 @@ const userSchema = new mongoose.Schema<UserDoc>(
     department: { type: String, enum: [...DEPARTMENTS, ''], default: '' },
     hireDate: { type: Date },
     gender: { type: String, enum: ['male', 'female'] },
+    workMode: { type: String, enum: WORK_MODES },
   },
   {
     collection: 'users',
