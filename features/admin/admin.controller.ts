@@ -2,7 +2,14 @@ import type { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { UserModel, DEPARTMENTS, WORK_MODES } from '../../common/models/userModel';
-import { AdminSettingsModel, getAdminSettings, DEFAULT_TAB_ACCESS } from '../../common/models/adminSettingsModel';
+import {
+  AdminSettingsModel,
+  getAdminSettings,
+  DEFAULT_TAB_ACCESS,
+  DEFAULT_OFFICE_WORK_HOURS,
+  DEFAULT_LIVE_MIN_SESSION_MINUTES,
+  type OfficeWorkHours,
+} from '../../common/models/adminSettingsModel';
 import { logAudit, listAuditLogs } from '../../common/models/auditLogModel';
 import { ensureMongoConnected } from '../../common/mongo';
 import { getJwtSecret } from '../../common/auth.middleware';
@@ -260,6 +267,8 @@ export async function getSettings(_req: Request, res: Response): Promise<void> {
     res.json({
       tabAccess: Object.fromEntries(settings.tabAccess),
       botEnabled: settings.botEnabled,
+      officeWorkHours: settings.officeWorkHours,
+      liveMinSessionMinutes: settings.liveMinSessionMinutes,
     });
   } catch (err) {
     console.error('[admin/getSettings]', err);
@@ -270,15 +279,19 @@ export async function getSettings(_req: Request, res: Response): Promise<void> {
 export async function updateSettings(req: Request, res: Response): Promise<void> {
   try {
     await ensureMongoConnected();
-    const { tabAccess, botEnabled } = req.body as {
+    const { tabAccess, botEnabled, officeWorkHours, liveMinSessionMinutes } = req.body as {
       tabAccess?: Record<string, string[]>;
       botEnabled?: { zalo?: boolean };
+      officeWorkHours?: Partial<OfficeWorkHours>;
+      liveMinSessionMinutes?: number;
     };
     let settings = await AdminSettingsModel.findOne();
     if (!settings) {
       settings = await AdminSettingsModel.create({
         tabAccess: new Map(Object.entries(DEFAULT_TAB_ACCESS)),
         botEnabled: { zalo: true },
+        officeWorkHours: DEFAULT_OFFICE_WORK_HOURS,
+        liveMinSessionMinutes: DEFAULT_LIVE_MIN_SESSION_MINUTES,
       });
     }
     if (tabAccess) {
@@ -290,11 +303,36 @@ export async function updateSettings(req: Request, res: Response): Promise<void>
     if (botEnabled) {
       if (typeof botEnabled.zalo === 'boolean') settings.botEnabled.zalo = botEnabled.zalo;
     }
+    if (officeWorkHours) {
+      const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+      if (officeWorkHours.checkIn !== undefined && HHMM.test(officeWorkHours.checkIn)) {
+        settings.officeWorkHours.checkIn = officeWorkHours.checkIn;
+      }
+      if (officeWorkHours.checkOut !== undefined && HHMM.test(officeWorkHours.checkOut)) {
+        settings.officeWorkHours.checkOut = officeWorkHours.checkOut;
+      }
+      if (
+        typeof officeWorkHours.graceMinutes === 'number' &&
+        Number.isFinite(officeWorkHours.graceMinutes) &&
+        officeWorkHours.graceMinutes >= 0
+      ) {
+        settings.officeWorkHours.graceMinutes = officeWorkHours.graceMinutes;
+      }
+    }
+    if (
+      typeof liveMinSessionMinutes === 'number' &&
+      Number.isFinite(liveMinSessionMinutes) &&
+      liveMinSessionMinutes >= 0
+    ) {
+      settings.liveMinSessionMinutes = liveMinSessionMinutes;
+    }
     await settings.save();
-    logAudit(req.auth!.username, 'update_settings', 'Cập nhật phân quyền tab / cài đặt bot');
+    logAudit(req.auth!.username, 'update_settings', 'Cập nhật phân quyền tab / cài đặt bot / giờ làm chuẩn');
     res.json({
       tabAccess: Object.fromEntries(settings.tabAccess),
       botEnabled: settings.botEnabled,
+      officeWorkHours: settings.officeWorkHours,
+      liveMinSessionMinutes: settings.liveMinSessionMinutes,
     });
   } catch (err) {
     console.error('[admin/updateSettings]', err);
