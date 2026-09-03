@@ -2,6 +2,8 @@ import PancakeWebhookEvent from '../../../common/models/PancakeWebhookEvent';
 import { connectMongo, useMongo } from '../../../common/mongo';
 import { listWebhookEvents } from './pancakeWebhook';
 import { mongoShopKeyFilter, eventMatchesShopKey } from './shopKeyFilter';
+import { getAllProductVariations } from '../webhook.service';
+import type { InvoiceShopKey } from '../../pancake-einvoice/invoiceShops';
 
 export type SalesSummaryVariant = {
   color: string;
@@ -73,6 +75,7 @@ function extractImageUrl(variationInfo: Record<string, unknown>): string | null 
 }
 
 type RawLine = {
+  variationId: string;
   productCode: string;
   productName: string;
   imageUrl: string | null;
@@ -90,6 +93,8 @@ function extractLinesFromItem(item: Record<string, unknown>): RawLine | null {
 
   const productCode = trimString(info.product_display_id);
   if (!productCode) return null;
+
+  const variationId = trimString(item.variation_id ?? item.variationId);
 
   const qty = Number(item.quantity);
   if (!Number.isFinite(qty) || qty <= 0) return null;
@@ -112,6 +117,7 @@ function extractLinesFromItem(item: Record<string, unknown>): RawLine | null {
   const netPrice = Math.max(0, listPrice - discountEach);
 
   return {
+    variationId,
     productCode,
     productName: rawLabel,
     imageUrl: extractImageUrl(info),
@@ -210,6 +216,30 @@ export async function computeSalesSummaryAnalytics(options?: {
   const from = new Date(to.getTime() - windowDays * 24 * 60 * 60 * 1000);
 
   const events = await loadOrderEvents(from, options?.shopKey);
+
+  // Different Pancake shops share the same event store but have completely
+  // separate variation_id spaces — restrict to this shop's catalog so stray
+  // events from other shops (e.g. missing/legacy shopKey tags) don't leak in.
+  // Fail closed (throw) rather than silently sending an unfiltered report
+  // if the catalog can't be verified.
+  let catalogIds: Set<string> | null = null;
+  if (options?.shopKey) {
+    let catalog: Awaited<ReturnType<typeof getAllProductVariations>>;
+    try {
+      catalog = await getAllProductVariations(options.shopKey as InvoiceShopKey);
+    } catch (err) {
+      console.error(`[sales-summary] Failed to fetch "${options.shopKey}" catalog for shop filtering:`, err);
+      throw new Error(`Không thể tải danh mục sản phẩm của shop "${options.shopKey}" để lọc mẫu theo shop.`);
+    }
+    const ids = catalog
+      .map((row) => String((row as Record<string, unknown>).variation_id ?? (row as Record<string, unknown>).id ?? '').trim())
+      .filter(Boolean);
+    if (ids.length === 0) {
+      throw new Error(`Danh mục sản phẩm của shop "${options.shopKey}" trống — không thể lọc mẫu theo shop an toàn.`);
+    }
+    catalogIds = new Set(ids);
+  }
+
   const seenOrderIds = new Set<string>();
   const products = new Map<string, ProductAgg>();
   let orderEventsUsed = 0;
@@ -221,7 +251,10 @@ export async function computeSalesSummaryAnalytics(options?: {
       seenOrderIds.add(orderId);
     }
 
-    const lines = collectRawLines(ev.payload);
+    let lines = collectRawLines(ev.payload);
+    if (catalogIds) {
+      lines = lines.filter((line) => line.variationId && catalogIds!.has(line.variationId));
+    }
     if (lines.length === 0) continue;
     orderEventsUsed += 1;
 
