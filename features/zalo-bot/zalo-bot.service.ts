@@ -11,6 +11,10 @@ import { useMongo } from '../../common/mongo';
 import { getDailyStockConfig, saveDailyStockConfig } from './dailyStockConfig';
 import type { InvoiceShopKey } from '../pancake-einvoice/invoiceShops';
 import { generateStockImageServer, stitchIntoCompositeServer } from './stockImageServer';
+import { generateSalesImageServer } from './salesImageServer';
+import { computeSalesSummaryAnalytics } from '../pancake-webhook/lib/salesSummaryAnalytics';
+import { buildSalesSummaryHeaderText, buildSalesSummaryChunkText } from './formatSalesSummaryZaloText';
+import { getSalesSummaryConfig, saveSalesSummaryConfig } from './salesSummaryConfig';
 
 const TEMP_IMG_DIR = path.join(process.cwd(), 'public', 'temp-images');
 const TEMP_IMG_MAX_AGE_MS = 30 * 24 * 60 * 60_000; // 30 days
@@ -673,11 +677,97 @@ export async function sendDailyStockReport(
   return { ok: true };
 }
 
+// ---- 5-day sales summary report ----
+
+export async function sendSalesSummaryReport(
+  kind: 'scheduled' | 'manual' = 'manual'
+): Promise<{ ok: boolean; error?: string; text?: string }> {
+  const env = getEnvConfig();
+  if (!env.botToken) return { ok: false, error: 'ZALO_BOT_TOKEN chưa được cấu hình.' };
+  if (!env.chatId) return { ok: false, error: 'ZALO_CHAT_ID chưa được cấu hình.' };
+
+  const logKind = kind === 'scheduled' ? 'scheduled' : 'report';
+
+  // This report only ever covers the "meit" shop's models, regardless of stored config.
+  let analytics: Awaited<ReturnType<typeof computeSalesSummaryAnalytics>>;
+  try {
+    analytics = await computeSalesSummaryAnalytics({ days: 5, shopKey: 'meit' });
+  } catch (err) {
+    const error = err instanceof Error ? err.message : 'Không thể tổng hợp dữ liệu bán hàng.';
+    addLog({ sentAt: new Date().toISOString(), kind: logKind, success: false, error, chatId: env.chatId, preview: '' });
+    return { ok: false, error };
+  }
+
+  if (analytics.products.length === 0) {
+    return { ok: true, text: 'Không có mẫu nào phát sinh bán trong 5 ngày qua.' };
+  }
+
+  const headerResult = await sendZaloMessage(env.botToken, env.chatId, buildSalesSummaryHeaderText(analytics.windowDays, analytics.from, analytics.to));
+  if (!headerResult.ok) {
+    addLog({ sentAt: new Date().toISOString(), kind: logKind, success: false, error: headerResult.error, chatId: env.chatId, preview: 'header message' });
+    return headerResult;
+  }
+
+  const chunks: (typeof analytics.products)[] = [];
+  for (let i = 0; i < analytics.products.length; i += PRODUCTS_PER_MESSAGE) {
+    chunks.push(analytics.products.slice(i, i + PRODUCTS_PER_MESSAGE));
+  }
+
+  for (let chunkIdx = 0; chunkIdx < chunks.length; chunkIdx++) {
+    const chunk = chunks[chunkIdx];
+
+    const images: string[] = [];
+    for (const p of chunk) {
+      try {
+        const b64 = await generateSalesImageServer(p.productCode, p.imageUrl, p.variants);
+        images.push(b64);
+      } catch (err) {
+        console.error(`[zalo-bot] generateSalesImage failed for ${p.productCode}:`, err);
+      }
+    }
+    if (images.length === 0) continue;
+
+    let compositeB64: string;
+    try {
+      compositeB64 = images.length === 1 ? images[0] : await stitchIntoCompositeServer(images);
+    } catch (err) {
+      console.error('[zalo-bot] stitchIntoComposite failed:', err);
+      compositeB64 = images[0];
+    }
+
+    const imgResult = await sendZaloPhotoBase64(compositeB64, '', env.chatId);
+    addLog({
+      sentAt: new Date().toISOString(),
+      kind: logKind,
+      success: imgResult.ok,
+      error: imgResult.error,
+      chatId: env.chatId,
+      preview: `chunk ${chunkIdx + 1}/${chunks.length} · ${images.length} ảnh`,
+    });
+    if (!imgResult.ok) return imgResult;
+
+    const salesText = buildSalesSummaryChunkText(chunk);
+    const textResult = await sendZaloMessage(env.botToken, env.chatId, salesText);
+    addLog({
+      sentAt: new Date().toISOString(),
+      kind: logKind,
+      success: textResult.ok,
+      error: textResult.error,
+      chatId: env.chatId,
+      preview: salesText.slice(0, 80),
+    });
+    if (!textResult.ok) return textResult;
+  }
+
+  return { ok: true };
+}
+
 // ---- Daily scheduler ----
 
 let schedulerStarted = false;
 let lastRevenueScheduledDate = '';
 let lastStockScheduledKey = '';
+let lastSalesSummaryScheduledKey = '';
 
 export function startZaloDailyScheduler(): void {
   if (schedulerStarted) return;
@@ -762,6 +852,42 @@ export function startZaloDailyScheduler(): void {
             console.log(`[zalo-bot] Đã gửi tồn kho tự động lúc ${vnDate} ${stockConfig.sendTime} (VN).`);
           } else {
             console.error(`[zalo-bot] Lỗi gửi tồn kho: ${result.error ?? ''}`);
+          }
+        }
+      }
+
+      // Sales summary report: fires every 5 days at configured sendTime
+      const salesConfig = await getSalesSummaryConfig().catch(() => null);
+      if (salesConfig?.enabled && env.botToken && env.chatId) {
+        const [configH, configM] = salesConfig.sendTime.split(':').map(Number);
+        const daysSinceLastSent = salesConfig.lastSentDate
+          ? Math.floor((vnNow.getTime() - new Date(salesConfig.lastSentDate + 'T00:00:00Z').getTime()) / 86_400_000)
+          : Infinity;
+        const salesKey = `${vnDate}-${salesConfig.sendTime}`;
+        if (
+          vnHour === configH && vnMinute === configM &&
+          lastSalesSummaryScheduledKey !== salesKey &&
+          daysSinceLastSent >= 5
+        ) {
+          lastSalesSummaryScheduledKey = salesKey;
+          if (await getLastSentDate('zalo-sales-summary') === vnDate) {
+            console.log('[zalo-bot] Tổng hợp bán hàng hôm nay đã gửi trước khi restart, bỏ qua.');
+            return;
+          }
+          if (useMongo()) {
+            const settings = await getAdminSettings().catch(() => null);
+            if (settings && !settings.botEnabled.zalo) {
+              console.log('[zalo-bot] Bot đang bị tắt, bỏ qua lịch gửi tổng hợp bán hàng.');
+              return;
+            }
+          }
+          await markSentDate('zalo-sales-summary', vnDate);
+          const result = await sendSalesSummaryReport('scheduled');
+          if (result.ok) {
+            await saveSalesSummaryConfig({ lastSentDate: vnDate });
+            console.log(`[zalo-bot] Đã gửi tổng hợp bán hàng 5 ngày lúc ${vnDate} ${salesConfig.sendTime} (VN).`);
+          } else {
+            console.error(`[zalo-bot] Lỗi gửi tổng hợp bán hàng: ${result.error ?? ''}`);
           }
         }
       }

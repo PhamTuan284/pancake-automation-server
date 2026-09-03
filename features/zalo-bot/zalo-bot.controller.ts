@@ -9,10 +9,12 @@ import {
   sendZaloPhotoBase64,
   sendProductStockMultiToZalo,
   sendDailyStockReport,
+  sendSalesSummaryReport,
   dispatchRevenueReport,
   type ZaloProductStockPayload,
 } from './zalo-bot.service';
 import { getDailyStockConfig, saveDailyStockConfig } from './dailyStockConfig';
+import { getSalesSummaryConfig, saveSalesSummaryConfig } from './salesSummaryConfig';
 import { getAbnormalOrderConfig, saveAbnormalOrderConfig } from './abnormalOrderConfig';
 import { sendMockAbnormalOrderAlert } from './abnormalOrderAlert';
 import {
@@ -165,6 +167,36 @@ export async function saveDailyStockConfigHandler(req: Request, res: Response): 
 
 export async function postSendDailyStockNow(_req: Request, res: Response): Promise<void> {
   const result = await sendDailyStockReport('manual');
+  if (!result.ok) {
+    res.status(400).json({ ok: false, error: result.error });
+    return;
+  }
+  res.json({ ok: true, text: result.text });
+}
+
+export async function getSalesSummaryConfigHandler(_req: Request, res: Response): Promise<void> {
+  const config = await getSalesSummaryConfig();
+  res.json({ ok: true, ...config });
+}
+
+export async function saveSalesSummaryConfigHandler(req: Request, res: Response): Promise<void> {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const enabled = typeof body.enabled === 'boolean' ? body.enabled : undefined;
+  const sendTime = typeof body.sendTime === 'string' && /^\d{1,2}:\d{2}$/.test(body.sendTime.trim())
+    ? body.sendTime.trim()
+    : undefined;
+
+  // This report only ever covers the "meit" shop's models — shopKey is not user-configurable.
+  const updated = await saveSalesSummaryConfig({
+    shopKey: 'meit',
+    ...(enabled !== undefined && { enabled }),
+    ...(sendTime !== undefined && { sendTime }),
+  });
+  res.json({ ok: true, ...updated });
+}
+
+export async function postSendSalesSummaryNow(_req: Request, res: Response): Promise<void> {
+  const result = await sendSalesSummaryReport('manual');
   if (!result.ok) {
     res.status(400).json({ ok: false, error: result.error });
     return;

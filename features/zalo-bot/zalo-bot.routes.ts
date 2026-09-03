@@ -47,6 +47,18 @@ zaloRouter.post('/zalo-bot/send-daily-stock', (req, res) => {
   void ctrl.postSendDailyStockNow(req, res);
 });
 
+zaloRouter.get('/zalo-bot/sales-summary-config', (req, res) => {
+  void ctrl.getSalesSummaryConfigHandler(req, res);
+});
+
+zaloRouter.put('/zalo-bot/sales-summary-config', (req, res) => {
+  void ctrl.saveSalesSummaryConfigHandler(req, res);
+});
+
+zaloRouter.post('/zalo-bot/send-sales-summary', (req, res) => {
+  void ctrl.postSendSalesSummaryNow(req, res);
+});
+
 zaloRouter.post('/zalo-bot/send-mock-abnormal-order', (req, res) => {
   void ctrl.postSendMockAbnormalOrder(req, res);
 });
