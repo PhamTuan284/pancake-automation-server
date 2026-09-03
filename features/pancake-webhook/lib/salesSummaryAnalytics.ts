@@ -11,6 +11,7 @@ export type SalesSummaryVariant = {
   qty: number;
   listPrice: number;
   netPrice: number;
+  currentStock: number | null;
 };
 
 export type SalesSummaryProduct = {
@@ -48,6 +49,28 @@ function isCancelledOrder(payload: Record<string, unknown>): boolean {
   );
 }
 
+/** Mirrors revenueAnalytics.ts's isoToVnDate so order dates are interpreted consistently across reports. */
+function isoToVnDate(iso: string): string {
+  try {
+    const d = new Date(iso.includes('T') && !iso.endsWith('Z') && !iso.includes('+')
+      ? iso + '+07:00'
+      : iso);
+    const vn = new Date(d.getTime() + (iso.endsWith('Z') || iso.includes('+') ? 7 * 3_600_000 : 0));
+    return vn.toISOString().slice(0, 10);
+  } catch {
+    return '';
+  }
+}
+
+/** The order's actual creation date (VN), not the webhook's receivedAt — an order can get
+ *  status-update webhooks days/weeks after it was placed (shipping progress, edits, etc.). */
+function extractOrderVnDate(payload: unknown): string {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return '';
+  const root = payload as Record<string, unknown>;
+  const rawInserted = trimString(root.inserted_at ?? root.created_at ?? '');
+  return rawInserted ? isoToVnDate(rawInserted) : '';
+}
+
 function extractOrderId(payload: unknown): string | null {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
   const obj = payload as Record<string, unknown>;
@@ -70,6 +93,14 @@ function extractImageUrl(variationInfo: Record<string, unknown>): string | null 
     const img = first as Record<string, unknown>;
     const url = img.thumbnail_url ?? img.url ?? img.src;
     if (typeof url === 'string' && url.trim()) return url.trim();
+  }
+  return null;
+}
+
+function extractCatalogStock(row: Record<string, unknown>): number | null {
+  for (const field of ['quantity', 'remain_quantity', 'stock_quantity']) {
+    const v = Number(row[field]);
+    if (Number.isFinite(v) && v >= 0) return v;
   }
   return null;
 }
@@ -137,12 +168,20 @@ function collectRawLines(payload: unknown): RawLine[] {
   if (isCancelledOrder(root)) return [];
 
   const out: RawLine[] = [];
+  const seen = new Set<string>();
   const pushFromArray = (arr: unknown) => {
     if (!Array.isArray(arr)) return;
     for (const item of arr) {
       if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
       const line = extractLinesFromItem(item as Record<string, unknown>);
-      if (line) out.push(line);
+      if (!line) continue;
+      // The same order payload can nest its items array under several of the
+      // LINE_ARRAY_KEYS paths below (root, root.data, root.data.record) —
+      // without this dedup, each line gets counted once per path it's found in.
+      const key = `${line.variationId}:${line.qty}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(line);
     }
   };
 
@@ -198,6 +237,7 @@ type VariantAgg = {
   qty: number;
   listPriceWeighted: number;
   netPriceWeighted: number;
+  variationId: string;
 };
 
 type ProductAgg = {
@@ -214,8 +254,16 @@ export async function computeSalesSummaryAnalytics(options?: {
   const windowDays = Math.max(1, Math.min(90, Number(options?.days) || 5));
   const to = new Date();
   const from = new Date(to.getTime() - windowDays * 24 * 60 * 60 * 1000);
+  const fromVnDate = isoToVnDate(new Date(from.getTime() + 7 * 3_600_000).toISOString());
+  const toVnDate = isoToVnDate(new Date(to.getTime() + 7 * 3_600_000).toISOString());
 
-  const events = await loadOrderEvents(from, options?.shopKey);
+  // Query a wider receivedAt range than the report window: an order placed just
+  // before the cutoff can still receive status-update webhooks (shipping, edits)
+  // well after it was created, arriving with a fresh receivedAt. We fetch broadly
+  // by receivedAt, then decide what actually counts using each order's real
+  // inserted_at date below — never receivedAt.
+  const fetchSince = new Date(from.getTime() - 45 * 24 * 60 * 60 * 1000);
+  const events = await loadOrderEvents(fetchSince, options?.shopKey);
 
   // Different Pancake shops share the same event store but have completely
   // separate variation_id spaces — restrict to this shop's catalog so stray
@@ -223,6 +271,7 @@ export async function computeSalesSummaryAnalytics(options?: {
   // Fail closed (throw) rather than silently sending an unfiltered report
   // if the catalog can't be verified.
   let catalogIds: Set<string> | null = null;
+  const stockByVariationId = new Map<string, number>();
   if (options?.shopKey) {
     let catalog: Awaited<ReturnType<typeof getAllProductVariations>>;
     try {
@@ -231,9 +280,15 @@ export async function computeSalesSummaryAnalytics(options?: {
       console.error(`[sales-summary] Failed to fetch "${options.shopKey}" catalog for shop filtering:`, err);
       throw new Error(`Không thể tải danh mục sản phẩm của shop "${options.shopKey}" để lọc mẫu theo shop.`);
     }
-    const ids = catalog
-      .map((row) => String((row as Record<string, unknown>).variation_id ?? (row as Record<string, unknown>).id ?? '').trim())
-      .filter(Boolean);
+    const ids: string[] = [];
+    for (const row of catalog) {
+      const r = row as Record<string, unknown>;
+      const variationId = String(r.variation_id ?? r.id ?? '').trim();
+      if (!variationId) continue;
+      ids.push(variationId);
+      const stock = extractCatalogStock(r);
+      if (stock != null) stockByVariationId.set(variationId, stock);
+    }
     if (ids.length === 0) {
       throw new Error(`Danh mục sản phẩm của shop "${options.shopKey}" trống — không thể lọc mẫu theo shop an toàn.`);
     }
@@ -250,6 +305,11 @@ export async function computeSalesSummaryAnalytics(options?: {
       if (seenOrderIds.has(orderId)) continue;
       seenOrderIds.add(orderId);
     }
+
+    // Only count orders actually placed within the report window — a late
+    // shipping-status webhook for an older order must not count as a new sale.
+    const orderVnDate = extractOrderVnDate(ev.payload);
+    if (!orderVnDate || orderVnDate < fromVnDate || orderVnDate > toVnDate) continue;
 
     let lines = collectRawLines(ev.payload);
     if (catalogIds) {
@@ -269,7 +329,7 @@ export async function computeSalesSummaryAnalytics(options?: {
       const key = `${line.color}__${line.size}`;
       let variant = prod.variants.get(key);
       if (!variant) {
-        variant = { color: line.color, size: line.size, qty: 0, listPriceWeighted: 0, netPriceWeighted: 0 };
+        variant = { color: line.color, size: line.size, qty: 0, listPriceWeighted: 0, netPriceWeighted: 0, variationId: line.variationId };
         prod.variants.set(key, variant);
       }
       variant.qty += line.qty;
@@ -287,6 +347,7 @@ export async function computeSalesSummaryAnalytics(options?: {
           qty: v.qty,
           listPrice: v.qty > 0 ? Math.round(v.listPriceWeighted / v.qty) : 0,
           netPrice: v.qty > 0 ? Math.round(v.netPriceWeighted / v.qty) : 0,
+          currentStock: stockByVariationId.get(v.variationId) ?? null,
         }))
         .sort((a, b) => b.qty - a.qty);
       const totalQty = variants.reduce((sum, v) => sum + v.qty, 0);

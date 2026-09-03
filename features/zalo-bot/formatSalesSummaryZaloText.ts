@@ -19,19 +19,20 @@ export function buildSalesSummaryHeaderText(windowDays: number, from: string, to
 export function buildSalesSummaryChunkText(chunk: SalesSummaryProduct[]): string {
   const blocks: string[] = [];
   for (const p of chunk) {
-    const colorMap = new Map<string, Array<{ size: string; qty: number }>>();
+    const colorMap = new Map<string, Array<{ size: string; qty: number; currentStock: number | null }>>();
     for (const v of p.variants) {
       const key = v.color || '__';
       if (!colorMap.has(key)) colorMap.set(key, []);
-      colorMap.get(key)!.push({ size: v.size, qty: v.qty });
+      colorMap.get(key)!.push({ size: v.size, qty: v.qty, currentStock: v.currentStock });
     }
 
     const lines: string[] = [`🔖 ${p.productCode}`];
     for (const [colorKey, items] of colorMap) {
       const label = colorKey === '__' ? '' : `${colorKey}: `;
-      const sizes = items.map((it) => `${it.qty}${it.size}`).join(' · ');
+      const sizes = items.map((it) => `${it.qty}/${it.currentStock ?? '?'}${it.size}`).join(' · ');
       lines.push(`  ${label}${sizes}`);
     }
+    lines.push('  (bán/tồn theo size)');
 
     let totalListValue = 0;
     let totalNetValue = 0;

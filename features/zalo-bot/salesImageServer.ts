@@ -9,7 +9,7 @@ try {
 export async function generateSalesImageServer(
   displayCode: string,
   imageUrl: string | null,
-  variants: Array<{ color: string; size: string; qty: number }>
+  variants: Array<{ color: string; size: string; qty: number; currentStock: number | null }>
 ): Promise<string> {
   const W = 800, H = 1000;
   const canvas = createCanvas(W, H);
@@ -39,13 +39,16 @@ export async function generateSalesImageServer(
     ctx.fillRect(0, 0, W, H);
   }
 
-  const colorMap = new Map<string, { color: string; items: Array<{ size: string; qty: number }> }>();
+  const colorMap = new Map<string, { color: string; items: Array<{ size: string; qty: number; currentStock: number | null }> }>();
   for (const v of variants) {
     const key = v.color || '__';
     if (!colorMap.has(key)) colorMap.set(key, { color: v.color, items: [] });
-    colorMap.get(key)!.items.push({ size: v.size, qty: v.qty });
+    colorMap.get(key)!.items.push({ size: v.size, qty: v.qty, currentStock: v.currentStock });
   }
   const groups = [...colorMap.values()];
+
+  const fmtLine = (it: { size: string; qty: number; currentStock: number | null }) =>
+    `${it.qty}/${it.currentStock ?? '?'} ${it.size}`;
 
   const GREEN = '#1B7A3D';
   const WHITE = '#FFFFFF';
@@ -78,7 +81,7 @@ export async function generateSalesImageServer(
     const [ax, ay, alignRight, alignBottom] = corners[i];
 
     ctx.font = `bold ${QTY_FONT}px ${FONT_FAMILY}, sans-serif`;
-    const maxQtyW = Math.max(...group.items.map((it: { qty: number; size: string }) => ctx.measureText(`${it.qty} ${it.size}`).width));
+    const maxQtyW = Math.max(...group.items.map((it) => ctx.measureText(fmtLine(it)).width));
     ctx.font = `bold ${COLOR_FONT}px ${FONT_FAMILY}, sans-serif`;
     const colorW = group.color ? ctx.measureText(group.color).width : 0;
     const boxW = Math.max(maxQtyW, colorW) + PAD * 2;
@@ -110,7 +113,7 @@ export async function generateSalesImageServer(
     ctx.font = `bold ${QTY_FONT}px ${FONT_FAMILY}, sans-serif`;
     for (const it of group.items) {
       textY += LINE_H;
-      ctx.fillText(`${it.qty} ${it.size}`, textX, textY);
+      ctx.fillText(fmtLine(it), textX, textY);
     }
   });
 
