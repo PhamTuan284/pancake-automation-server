@@ -2,10 +2,8 @@ import path from 'path';
 import fs from 'fs';
 import { httpsPost } from '../../common/httpsPost';
 import { getVariantSalesAnalytics, getAllProductVariations } from '../pancake-webhook/webhook.service';
-import { formatVariantSalesZaloText } from './formatVariantSalesZaloText';
-import { computeRevenueAnalytics, computeTeamSalesAnalytics } from '../pancake-webhook/lib/revenueAnalytics';
+import { computeRevenueAnalytics } from '../pancake-webhook/lib/revenueAnalytics';
 import { formatDailyRevenueText, formatMonthlyRevenueText } from './formatRevenueZaloText';
-import { formatTeamSalesZaloText } from './formatTeamSalesZaloText';
 import { getAdminSettings } from '../../common/models/adminSettingsModel';
 import { getLastSentDate, markSentDate } from '../../common/models/schedulerStateModel';
 import { addBotSendLog, getBotSendLogs, type BotSendLogEntry } from '../../common/models/botSendLogModel';
@@ -34,11 +32,8 @@ function cleanOldTempImages(): void {
 export type ZaloBotConfig = {
   botConfigured: boolean;
   chatId: string | null;
-  reportHour: number;
   shopKey: string;
   windowDays: number;
-  topLimit: number;
-  excludeVariants: string[];
 };
 
 export type ZaloSendLog = BotSendLogEntry;
@@ -48,17 +43,9 @@ function getEnvConfig() {
     botToken: process.env.ZALO_BOT_TOKEN?.trim() || null,
     chatId: process.env.ZALO_CHAT_ID?.trim() || null,
     stockChatId: process.env.ZALO_STOCK_CHAT_ID?.trim() || null,
-    reportHour: Math.max(0, Math.min(23, parseInt(process.env.ZALO_REPORT_HOUR ?? '8', 10) || 8)),
     revenueHour: Math.max(0, Math.min(23, parseInt(process.env.ZALO_REVENUE_HOUR ?? '21', 10) || 21)),
-    teamSalesHour: Math.max(0, Math.min(23, parseInt(process.env.ZALO_TEAM_SALES_HOUR ?? '8', 10) || 8)),
-    teamSalesWeekday: Math.max(0, Math.min(6, parseInt(process.env.ZALO_TEAM_SALES_WEEKDAY ?? '1', 10) || 1)),
     shopKey: process.env.ZALO_REPORT_SHOP?.trim() || 'meit',
     windowDays: Math.max(1, parseInt(process.env.ZALO_REPORT_DAYS ?? '7', 10) || 7),
-    topLimit: Math.max(1, parseInt(process.env.ZALO_REPORT_LIMIT ?? '15', 10) || 15),
-    excludeVariants: (process.env.ZALO_EXCLUDE_VARIANTS ?? '')
-      .split(',')
-      .map((s) => s.trim().toUpperCase())
-      .filter(Boolean),
   };
 }
 
@@ -67,11 +54,8 @@ export function getZaloBotConfig(): ZaloBotConfig {
   return {
     botConfigured: !!env.botToken,
     chatId: env.chatId,
-    reportHour: env.reportHour,
     shopKey: env.shopKey,
     windowDays: env.windowDays,
-    topLimit: env.topLimit,
-    excludeVariants: env.excludeVariants,
   };
 }
 
@@ -168,29 +152,6 @@ async function sendZaloMessage(
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
-}
-
-async function buildReportText(
-  shopKey: string,
-  windowDays: number,
-  limit: number,
-  excludeVariants: string[]
-): Promise<string> {
-  const analytics = await getVariantSalesAnalytics({
-    shop: shopKey,
-    days: windowDays,
-    eventLimit: 1000,
-  });
-
-  const excluded = new Set(excludeVariants);
-  const filtered = excluded.size > 0
-    ? { ...analytics, variants: analytics.variants.filter(
-        (v) => !excluded.has((v.variantCode ?? '').toUpperCase())
-      ) }
-    : analytics;
-
-  const { text } = formatVariantSalesZaloText(filtered, { limit });
-  return text;
 }
 
 async function sendZaloPhoto(
@@ -366,9 +327,7 @@ export async function sendProductStockToZalo(
   return { ...result, text: caption };
 }
 
-export async function dispatchZaloSend(
-  kind: 'test' | 'report' | 'scheduled'
-): Promise<{ ok: boolean; error?: string; text?: string }> {
+export async function dispatchZaloSend(): Promise<{ ok: boolean; error?: string; text?: string }> {
   const env = getEnvConfig();
 
   if (!env.botToken) {
@@ -378,24 +337,13 @@ export async function dispatchZaloSend(
     return { ok: false, error: 'ZALO_CHAT_ID chưa được cấu hình trên server.' };
   }
 
-  let text: string;
-  if (kind === 'test') {
-    const now = new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
-    text = `✅ Kết nối Zalo thành công!\nServer MeiT Tools đang hoạt động.\nThời điểm: ${now}`;
-  } else {
-    try {
-      text = await buildReportText(env.shopKey, env.windowDays, env.topLimit, env.excludeVariants);
-    } catch (err) {
-      const error = err instanceof Error ? err.message : 'Không thể tạo báo cáo.';
-      addLog({ sentAt: new Date().toISOString(), kind, success: false, error, chatId: env.chatId, preview: '' });
-      return { ok: false, error };
-    }
-  }
+  const now = new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+  const text = `✅ Kết nối Zalo thành công!\nServer MeiT Tools đang hoạt động.\nThời điểm: ${now}`;
 
   const result = await sendZaloMessage(env.botToken, env.chatId, text);
   addLog({
     sentAt: new Date().toISOString(),
-    kind,
+    kind: 'test',
     success: result.ok,
     error: result.error,
     chatId: env.chatId,
@@ -443,30 +391,6 @@ export async function dispatchRevenueReport(
       ? formatMonthlyRevenueText(result, todayVnDate)
       : formatDailyRevenueText(result, todayVnDate);
 
-    const sendResult = await sendZaloMessage(env.botToken, env.chatId, text);
-    addLog({
-      sentAt: new Date().toISOString(),
-      kind: 'report',
-      success: sendResult.ok,
-      error: sendResult.error,
-      chatId: env.chatId,
-      preview: text.slice(0, 100),
-    });
-    return { ...sendResult, text };
-  } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
-    return { ok: false, error };
-  }
-}
-
-export async function dispatchTeamSalesReport(): Promise<{ ok: boolean; text?: string; error?: string }> {
-  const env = getEnvConfig();
-  if (!env.botToken) return { ok: false, error: 'ZALO_BOT_TOKEN chưa được cấu hình.' };
-  if (!env.chatId) return { ok: false, error: 'ZALO_CHAT_ID chưa được cấu hình.' };
-
-  try {
-    const result = await computeTeamSalesAnalytics({ shopKey: env.shopKey });
-    const text = formatTeamSalesZaloText(result);
     const sendResult = await sendZaloMessage(env.botToken, env.chatId, text);
     addLog({
       sentAt: new Date().toISOString(),
@@ -752,9 +676,7 @@ export async function sendDailyStockReport(
 // ---- Daily scheduler ----
 
 let schedulerStarted = false;
-let lastSalesScheduledDate = '';
 let lastRevenueScheduledDate = '';
-let lastTeamSalesScheduledDate = '';
 let lastStockScheduledKey = '';
 
 export function startZaloDailyScheduler(): void {
@@ -769,29 +691,6 @@ export function startZaloDailyScheduler(): void {
       const vnDate = vnNow.toISOString().split('T')[0];
       const vnHour = vnNow.getUTCHours();
       const vnMinute = vnNow.getUTCMinutes();
-
-      // Sales report: fires at configured hour (whole hour)
-      if (env.botToken && env.chatId && vnHour === env.reportHour && lastSalesScheduledDate !== vnDate) {
-        lastSalesScheduledDate = vnDate;
-        if (await getLastSentDate('zalo-sales') === vnDate) {
-          console.log('[zalo-bot] Báo cáo doanh số hôm nay đã gửi trước khi restart, bỏ qua.');
-          return;
-        }
-        if (useMongo()) {
-          const settings = await getAdminSettings().catch(() => null);
-          if (settings && !settings.botEnabled.zalo) {
-            console.log('[zalo-bot] Bot đang bị tắt trong cài đặt admin, bỏ qua lịch gửi báo cáo doanh số.');
-            return;
-          }
-        }
-        await markSentDate('zalo-sales', vnDate);
-        const result = await dispatchZaloSend('scheduled');
-        if (result.ok) {
-          console.log(`[zalo-bot] Đã gửi báo cáo doanh số tự động lúc ${vnDate} ${vnHour}h (VN).`);
-        } else {
-          console.error(`[zalo-bot] Lỗi gửi báo cáo doanh số: ${result.error ?? ''}`);
-        }
-      }
 
       // Revenue report: fires at revenueHour; also sends monthly summary on last day of month
       if (env.botToken && env.chatId && vnHour === env.revenueHour && lastRevenueScheduledDate !== vnDate) {
@@ -827,36 +726,6 @@ export function startZaloDailyScheduler(): void {
           // no Mongo — just send daily
           await markSentDate('zalo-revenue', vnDate);
           void dispatchRevenueReport('daily');
-        }
-      }
-
-      // Team sales weekly report: fires on configured weekday + hour
-      const vnWeekday = vnNow.getUTCDay(); // 0=Sun,1=Mon,...
-      if (
-        env.botToken && env.chatId &&
-        vnWeekday === env.teamSalesWeekday &&
-        vnHour === env.teamSalesHour &&
-        lastTeamSalesScheduledDate !== vnDate
-      ) {
-        lastTeamSalesScheduledDate = vnDate;
-        if (await getLastSentDate('zalo-team-sales') === vnDate) {
-          console.log('[zalo-bot] Doanh số team sale tuần này đã gửi trước khi restart, bỏ qua.');
-        } else if (useMongo()) {
-          const settings = await getAdminSettings().catch(() => null);
-          if (settings && !settings.botEnabled.zalo) {
-            console.log('[zalo-bot] Bot đang bị tắt, bỏ qua lịch gửi doanh số team sale.');
-          } else {
-            await markSentDate('zalo-team-sales', vnDate);
-            const result = await dispatchTeamSalesReport();
-            if (result.ok) {
-              console.log(`[zalo-bot] Đã gửi doanh số team sale tuần tại ${vnDate}.`);
-            } else {
-              console.error(`[zalo-bot] Lỗi gửi doanh số team sale: ${result.error ?? ''}`);
-            }
-          }
-        } else {
-          await markSentDate('zalo-team-sales', vnDate);
-          void dispatchTeamSalesReport();
         }
       }
 

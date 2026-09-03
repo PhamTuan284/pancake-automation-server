@@ -19,7 +19,6 @@ import {
   webhookEventStorageSource,
 } from './lib/pancakeWebhook';
 import { extractPancakeProductCodes } from './lib/pancakeProductCodes';
-import { formatVariantSalesZaloText } from './lib/formatVariantSalesZaloText';
 import {
   computeVariantSalesAnalytics,
   stripVariantSalesInternalIds,
@@ -232,31 +231,3 @@ export async function getVariantSalesAnalytics(query: Record<string, unknown>) {
   }
 }
 
-function trimString(value: unknown): string {
-  return String(value ?? '').trim();
-}
-
-/** Optional shared secret for n8n / cron (set ZALO_REPORT_SECRET on server). */
-export function verifyZaloReportSecret(
-  query: Record<string, unknown>,
-  headerSecret?: string
-): boolean {
-  const expected = trimString(process.env.ZALO_REPORT_SECRET);
-  if (!expected) return true;
-  const provided =
-    trimString(query.secret) ||
-    trimString(headerSecret) ||
-    trimString(query['x-report-secret']);
-  return provided === expected;
-}
-
-export async function getVariantSalesZaloText(query: Record<string, unknown>) {
-  const analytics = await getVariantSalesAnalytics(query);
-  const formatted = formatVariantSalesZaloText(analytics, { limit: query.limit });
-  return {
-    windowDays: analytics.windowDays,
-    variantCount: analytics.variants.length,
-    lineCount: formatted.lineCount,
-    text: formatted.text,
-  };
-}

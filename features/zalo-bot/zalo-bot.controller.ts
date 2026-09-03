@@ -10,7 +10,6 @@ import {
   sendProductStockMultiToZalo,
   sendDailyStockReport,
   dispatchRevenueReport,
-  dispatchTeamSalesReport,
   type ZaloProductStockPayload,
 } from './zalo-bot.service';
 import { getDailyStockConfig, saveDailyStockConfig } from './dailyStockConfig';
@@ -31,7 +30,7 @@ export async function getLogs(_req: Request, res: Response): Promise<void> {
 }
 
 export async function postSendTest(_req: Request, res: Response): Promise<void> {
-  const result = await dispatchZaloSend('test');
+  const result = await dispatchZaloSend();
   if (!result.ok) {
     res.status(400).json({ ok: false, error: result.error });
     return;
@@ -60,24 +59,6 @@ export async function postGetUpdates(_req: Request, res: Response): Promise<void
     return;
   }
   res.json({ ok: true, chats: result.chats });
-}
-
-export async function postSendReport(_req: Request, res: Response): Promise<void> {
-  const result = await dispatchZaloSend('report');
-  if (!result.ok) {
-    res.status(400).json({ ok: false, error: result.error });
-    return;
-  }
-  res.json({ ok: true, text: result.text });
-}
-
-export async function postSendTeamSalesReport(_req: Request, res: Response): Promise<void> {
-  const result = await dispatchTeamSalesReport();
-  if (!result.ok) {
-    res.status(400).json({ ok: false, error: result.error });
-    return;
-  }
-  res.json({ ok: true, text: result.text });
 }
 
 export async function postSendRevenueReport(req: Request, res: Response): Promise<void> {
