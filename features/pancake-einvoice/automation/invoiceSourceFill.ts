@@ -2,8 +2,9 @@ import type { InvoiceRow } from '../../../common/types/invoice';
 import { findByBuyerName, findByPhone } from './invoiceRowMatch';
 
 export const BUYER_FACEBOOK_NO_INVOICE =
-  'Người mua Facebook không cung cấp thông tin';
-export const BUYER_ZALO_NO_INVOICE = 'Người mua Zalo không cung cấp thông tin';
+  'Bán cho người tiêu dùng Facebook';
+export const BUYER_ZALO_NO_INVOICE = 'Bán cho người tiêu dùng Zalo';
+export const BUYER_ZALO_WHOLESALE_NO_INVOICE = 'Bán cho người tiêu dùng';
 
 function localeLower(s: string): string {
   try {
@@ -29,6 +30,13 @@ export function rowHasFacebookOrderSource(rowText: string): boolean {
 /** Nguồn đơn includes "Zalo" (any casing). */
 export function rowHasZaloOrderSource(rowText: string): boolean {
   return localeLower(rowText).includes('zalo');
+}
+
+/** Wholesale customers are named "Sỉ <tên khách>" on the order (e.g. "Sỉ Thái Ngân"). */
+export function rowHasWholesaleCustomer(rowText: string): boolean {
+  return localeLower(rowText)
+    .split(/\s+/)
+    .some((word) => word === 'sỉ');
 }
 
 function emptyInvoiceRow(buyerName: string): InvoiceRow {
@@ -59,8 +67,9 @@ function matchCustomerRow(
  * MeiT tab fill priority:
  * 1. Customer list match (by phone or buyer name) → use stored data.
  * 2. No match + Facebook nguồn đơn → placeholder "Người mua Facebook…".
- * 3. No match + Zalo nguồn đơn → placeholder "Người mua Zalo…".
- * 4. No match + unknown source → null (skip row).
+ * 3. No match + Zalo nguồn đơn + tên khách "Sỉ …" → placeholder "Bán cho người tiêu dùng" (no channel suffix).
+ * 4. No match + Zalo nguồn đơn (khách lẻ) → placeholder "Người mua Zalo…".
+ * 5. No match + unknown source → null (skip row).
  *
  * Other shops: customer list match only.
  */
@@ -77,6 +86,9 @@ export function resolveInvoiceFillData(
       return emptyInvoiceRow(BUYER_FACEBOOK_NO_INVOICE);
     }
     if (rowHasZaloOrderSource(rowText)) {
+      if (rowHasWholesaleCustomer(rowText)) {
+        return emptyInvoiceRow(BUYER_ZALO_WHOLESALE_NO_INVOICE);
+      }
       return emptyInvoiceRow(BUYER_ZALO_NO_INVOICE);
     }
   }

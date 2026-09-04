@@ -11,6 +11,7 @@ import { normalizeNameKey } from './invoiceRowMatch';
 import {
   BUYER_FACEBOOK_NO_INVOICE,
   BUYER_ZALO_NO_INVOICE,
+  BUYER_ZALO_WHOLESALE_NO_INVOICE,
   resolveInvoiceFillData,
 } from './invoiceSourceFill';
 import { fillInvoiceForm } from './invoiceModalFill';
@@ -145,7 +146,8 @@ export async function processInvoicesByBuyerName(
         if (
           meitSourceRules &&
           (data.buyerName === BUYER_FACEBOOK_NO_INVOICE ||
-            data.buyerName === BUYER_ZALO_NO_INVOICE)
+            data.buyerName === BUYER_ZALO_NO_INVOICE ||
+            data.buyerName === BUYER_ZALO_WHOLESALE_NO_INVOICE)
         ) {
           console.log(
             `[fill] MeiT placeholder buyer (${data.buyerName}) for row:`,
