@@ -1,5 +1,6 @@
 import { execFileSync, spawn } from 'child_process';
 import path from 'path';
+import { acquireAutomationLock, isAnyAutomationRunning, releaseAutomationLock } from '../../common/automationLock';
 import {
   resolveMeiTAutomationVariant,
   type InvoiceShopKey,
@@ -10,16 +11,15 @@ import {
 export const WDIO_SPEC_EINVOICE_AUTOMATION =
   './wdio/features/pancake-einvoice-automation.feature';
 
-let e2eRunning = false;
 let e2eChild: ReturnType<typeof spawn> | null = null;
 
-/** True while a WDIO child process is running (any spec). */
+/** True while this or any other browser automation (e.g. EasyPOS) is running. */
 export function isAutomationRunning(): boolean {
-  return e2eRunning;
+  return isAnyAutomationRunning();
 }
 
 /**
- * Force-clear the running flag and kill the child process if still alive.
+ * Force-clear the shared automation lock and kill this feature's child process if still alive.
  * Use only when the flag is stuck (e.g. grandchild kept a stdio pipe open).
  */
 export function resetAutomationFlag(): void {
@@ -31,7 +31,7 @@ export function resetAutomationFlag(): void {
     }
     e2eChild = null;
   }
-  e2eRunning = false;
+  releaseAutomationLock();
 }
 
 const serverRoot = path.join(__dirname, '..', '..');
@@ -145,14 +145,15 @@ export async function triggerE2eTestRun(
   meitVariant: MeiTAutomationVariant = 'mode',
   saveMode?: string
 ): Promise<void> {
-  if (e2eRunning) {
+  try {
+    acquireAutomationLock('pancake-einvoice');
+  } catch {
     throw new Error('E2E test already running');
   }
-  e2eRunning = true;
   try {
     await runWdioE2e(extraWdioArgs, shopKey, meitVariant, saveMode);
   } finally {
-    e2eRunning = false;
+    releaseAutomationLock();
   }
 }
 

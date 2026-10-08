@@ -1,26 +1,31 @@
 import { spawn } from 'child_process';
 import path from 'path';
+import { acquireAutomationLock, isAnyAutomationRunning, releaseAutomationLock } from '../../common/automationLock';
 
 const serverRoot = path.join(__dirname, '..', '..');
 const tsxCli = path.join(serverRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const scriptPath = path.join(serverRoot, 'scripts', 'fixEasyposCustomerNames.ts');
 
-let running = false;
-
+/** True while this or any other browser automation (e.g. Pancake e-invoice) is running. */
 export function isEasyposAutomationRunning(): boolean {
-  return running;
+  return isAnyAutomationRunning();
 }
 
 /**
  * Runs `scripts/fixEasyposCustomerNames.ts` as a child process (spawned via `node <tsx-cli>`,
  * not `npx`/`npm run`, to avoid Windows `spawn EINVAL` on .cmd shims — same approach as
  * `runWdioE2e.cjs`). Resolves with the combined stdout/stderr once the process exits.
+ *
+ * Shares `common/automationLock` with the Pancake e-invoice WDIO runner — both spawn Chrome +
+ * chromedriver, and running two at once on a small server starves both (observed in prod: a
+ * concurrent EasyPOS run made the scheduled Pancake auto-run time out waiting for its modal).
  */
 export function runFixEasyposCustomerNames(apply: boolean): Promise<{ output: string }> {
-  if (running) {
+  try {
+    acquireAutomationLock('easypos-customer-names');
+  } catch {
     return Promise.reject(new Error('EasyPOS automation already running'));
   }
-  running = true;
 
   const args = [tsxCli, scriptPath, ...(apply ? ['--apply'] : [])];
   return new Promise((resolve, reject) => {
@@ -36,12 +41,12 @@ export function runFixEasyposCustomerNames(apply: boolean): Promise<{ output: st
     child.stderr?.on('data', push);
 
     child.on('error', (err) => {
-      running = false;
+      releaseAutomationLock();
       reject(err);
     });
 
     child.on('exit', (code) => {
-      running = false;
+      releaseAutomationLock();
       const output = Buffer.concat(chunks).toString('utf8');
       if (code === 0) {
         resolve({ output });
