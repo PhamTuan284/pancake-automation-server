@@ -6,7 +6,27 @@ export type EasyInvoiceApiResult = {
   body: unknown;
 };
 
-async function callEasyInvoice(path: string, payload: Record<string, unknown>): Promise<EasyInvoiceApiResult> {
+/** Every resource from the EasyInvoice integration doc (section IV), keyed by a stable operation id. */
+export const EASYINVOICE_OPERATIONS = {
+  importAndPublishInvoice: '/api/publish/importAndPublishInvoice',
+  replaceInvoice: '/api/business/replaceInvoice',
+  adjustInvoice: '/api/business/adjustInvoice',
+  checkInvoiceState: '/api/publish/checkInvoiceState',
+  registerDeclaration: '/api/declaration/registerAndPublish',
+  searchDeclaration: '/api/declaration/search',
+  declarationDetail: '/api/declaration/get_detail',
+} as const;
+
+export type EasyInvoiceOperation = keyof typeof EASYINVOICE_OPERATIONS;
+
+export function isEasyInvoiceOperation(value: unknown): value is EasyInvoiceOperation {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(EASYINVOICE_OPERATIONS, value);
+}
+
+export async function callEasyInvoice(
+  path: string,
+  payload: Record<string, unknown>
+): Promise<EasyInvoiceApiResult> {
   const config = getEasyInvoiceConfig();
   const res = await fetch(`${config.baseUrl}${path}`, {
     method: 'POST',
@@ -22,34 +42,22 @@ async function callEasyInvoice(path: string, payload: Record<string, unknown>): 
   try {
     body = text ? JSON.parse(text) : {};
   } catch {
-    // API returned non-JSON (e.g. an HTML error page) — surface the raw text.
+    // Non-JSON response (e.g. an HTML error page) — return the raw text.
   }
 
   return { httpStatus: res.status, body };
 }
 
 /**
- * Connectivity/auth smoke test: calls checkInvoiceState with a throwaway ikey.
- * The API replying at all (even with a "not found" business error) confirms the
- * base URL, signature and credentials are accepted — a 401/403 means auth is wrong.
+ * Connectivity/auth smoke test: checkInvoiceState with a throwaway ikey.
+ * Any JSON reply from the API (even a "not found" business result) confirms the
+ * base URL, signature and credentials are accepted.
  */
 export async function testConnection(): Promise<EasyInvoiceApiResult> {
   const config = getEasyInvoiceConfig();
-  return callEasyInvoice('/api/publish/checkInvoiceState', {
+  return callEasyInvoice(EASYINVOICE_OPERATIONS.checkInvoiceState, {
     Pattern: config.pattern,
     Serial: config.serial,
     Ikeys: [`meit-test-${Date.now()}`],
-  });
-}
-
-export async function checkInvoiceState(params: {
-  pattern: string;
-  serial: string;
-  ikey: string;
-}): Promise<EasyInvoiceApiResult> {
-  return callEasyInvoice('/api/publish/checkInvoiceState', {
-    Pattern: params.pattern,
-    Serial: params.serial,
-    Ikeys: [params.ikey],
   });
 }

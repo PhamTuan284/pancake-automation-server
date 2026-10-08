@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../../common/auth.middleware';
-import { postCheckStatus, postTestConnection } from './easyinvoice.controller';
+import { postCall, postTestConnection } from './easyinvoice.controller';
 
 export const easyInvoiceRouter = Router();
 
@@ -8,6 +8,6 @@ easyInvoiceRouter.post('/easyinvoice/test-connection', requireAuth, (req, res) =
   void postTestConnection(req, res);
 });
 
-easyInvoiceRouter.post('/easyinvoice/check-status', requireAuth, (req, res) => {
-  void postCheckStatus(req, res);
+easyInvoiceRouter.post('/easyinvoice/call', requireAuth, (req, res) => {
+  void postCall(req, res);
 });

@@ -9,6 +9,7 @@ import { facebookRouter } from '../features/facebook/facebook.routes';
 import { driveRouter } from '../features/drive/drive.routes';
 import { teamMetricsRouter } from '../features/team-metrics/team-metrics.routes';
 import { easyInvoiceRouter } from '../features/easyinvoice/easyinvoice.routes';
+import { easyposAutomationRouter } from '../features/easypos-automation/easypos.routes';
 import { healthRouter } from './health.routes';
 
 export function mountRoutes(app: Express): void {
@@ -22,5 +23,6 @@ export function mountRoutes(app: Express): void {
   app.use(driveRouter);
   app.use(teamMetricsRouter);
   app.use(easyInvoiceRouter);
+  app.use(easyposAutomationRouter);
   app.use(healthRouter);
 }
