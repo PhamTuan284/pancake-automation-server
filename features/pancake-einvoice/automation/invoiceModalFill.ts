@@ -11,7 +11,9 @@ import {
 
 async function waitInvoiceModal(browser: WdioBrowser) {
   const modal = await browser.$(SEL.invoiceModal);
-  await modal.waitForDisplayed({ timeout: 20000 });
+  // 40s (was 20s): a safety margin against transient server slowness, not a fix for a selector
+  // change — the selector itself was confirmed still correct against the live site.
+  await modal.waitForDisplayed({ timeout: 40000 });
 }
 
 async function scrollInvoiceModalBodyToEnd(browser: WdioBrowser) {

@@ -1,6 +1,7 @@
 import { execFileSync, spawn } from 'child_process';
 import path from 'path';
 import { acquireAutomationLock, isAnyAutomationRunning, releaseAutomationLock } from '../../common/automationLock';
+import { killChildProcessTree } from '../../common/killProcessTree';
 import {
   resolveMeiTAutomationVariant,
   type InvoiceShopKey,
@@ -19,16 +20,12 @@ export function isAutomationRunning(): boolean {
 }
 
 /**
- * Force-clear the shared automation lock and kill this feature's child process if still alive.
- * Use only when the flag is stuck (e.g. grandchild kept a stdio pipe open).
+ * Force-clear the shared automation lock and kill this feature's child process tree if still
+ * alive. Use when the flag is stuck (e.g. grandchild kept a stdio pipe open).
  */
 export function resetAutomationFlag(): void {
   if (e2eChild) {
-    try {
-      e2eChild.kill();
-    } catch {
-      // already gone
-    }
+    killChildProcessTree(e2eChild);
     e2eChild = null;
   }
   releaseAutomationLock();
@@ -104,6 +101,9 @@ function runWdioE2e(
       cwd: serverRoot,
       env: envForWdioChild(shopKey, shopKey === 'meit' ? meitVariant : undefined, saveMode),
       stdio: ['ignore', 'pipe', 'pipe'],
+      // Own process group so we can SIGKILL the whole tree (chromedriver, Chrome) below —
+      // otherwise those grandchildren can outlive this child and leak RAM run after run.
+      detached: true,
     });
     e2eChild = child;
     const chunks: Buffer[] = [];
@@ -119,8 +119,10 @@ function runWdioE2e(
     });
     // Use 'exit' (not 'close') so the promise resolves as soon as the direct child
     // exits, without waiting for grandchild processes (browser drivers, WDIO workers)
-    // that may inherit stdio pipes and keep 'close' from ever firing.
+    // that may inherit stdio pipes and keep 'close' from ever firing. We still kill
+    // that process group explicitly so nothing is left running in the background.
     child.on('exit', (code) => {
+      killChildProcessTree(child);
       e2eChild = null;
       if (code === 0 || code === null) {
         resolve();

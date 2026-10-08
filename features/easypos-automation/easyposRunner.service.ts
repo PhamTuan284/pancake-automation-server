@@ -1,6 +1,7 @@
 import { spawn } from 'child_process';
 import path from 'path';
 import { acquireAutomationLock, isAnyAutomationRunning, releaseAutomationLock } from '../../common/automationLock';
+import { killChildProcessTree } from '../../common/killProcessTree';
 
 const serverRoot = path.join(__dirname, '..', '..');
 const tsxCli = path.join(serverRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
@@ -17,8 +18,10 @@ export function isEasyposAutomationRunning(): boolean {
  * `runWdioE2e.cjs`). Resolves with the combined stdout/stderr once the process exits.
  *
  * Shares `common/automationLock` with the Pancake e-invoice WDIO runner — both spawn Chrome +
- * chromedriver, and running two at once on a small server starves both (observed in prod: a
- * concurrent EasyPOS run made the scheduled Pancake auto-run time out waiting for its modal).
+ * chromedriver, and running two at once on a small server would starve both. (A prod incident
+ * initially suspected to be this turned out to be unrelated — see `killProcessTree.ts` — but
+ * the lock is still correct to keep: two concurrent Chrome sessions on a small container is a
+ * real risk regardless.)
  */
 export function runFixEasyposCustomerNames(apply: boolean): Promise<{ output: string }> {
   try {
@@ -33,6 +36,9 @@ export function runFixEasyposCustomerNames(apply: boolean): Promise<{ output: st
       cwd: serverRoot,
       env: process.env,
       stdio: ['ignore', 'pipe', 'pipe'],
+      // Own process group so we can SIGKILL the whole tree (chromedriver, Chrome) on exit —
+      // otherwise those grandchildren can outlive this child and leak RAM run after run.
+      detached: true,
     });
 
     const chunks: Buffer[] = [];
@@ -46,6 +52,7 @@ export function runFixEasyposCustomerNames(apply: boolean): Promise<{ output: st
     });
 
     child.on('exit', (code) => {
+      killChildProcessTree(child);
       releaseAutomationLock();
       const output = Buffer.concat(chunks).toString('utf8');
       if (code === 0) {
