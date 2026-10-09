@@ -12,24 +12,7 @@ export function isEasyposAutomationRunning(): boolean {
   return isAnyAutomationRunning();
 }
 
-/**
- * Runs `scripts/fixEasyposCustomerNames.ts` as a child process (spawned via `node <tsx-cli>`,
- * not `npx`/`npm run`, to avoid Windows `spawn EINVAL` on .cmd shims — same approach as
- * `runWdioE2e.cjs`). Resolves with the combined stdout/stderr once the process exits.
- *
- * Shares `common/automationLock` with the Pancake e-invoice WDIO runner — both spawn Chrome +
- * chromedriver, and running two at once on a small server would starve both. (A prod incident
- * initially suspected to be this turned out to be unrelated — see `killProcessTree.ts` — but
- * the lock is still correct to keep: two concurrent Chrome sessions on a small container is a
- * real risk regardless.)
- */
-export function runFixEasyposCustomerNames(apply: boolean): Promise<{ output: string }> {
-  try {
-    acquireAutomationLock('easypos-customer-names');
-  } catch {
-    return Promise.reject(new Error('EasyPOS automation already running'));
-  }
-
+function runChild(apply: boolean): Promise<{ output: string }> {
   const args = [tsxCli, scriptPath, ...(apply ? ['--apply'] : [])];
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, args, {
@@ -46,14 +29,10 @@ export function runFixEasyposCustomerNames(apply: boolean): Promise<{ output: st
     child.stdout?.on('data', push);
     child.stderr?.on('data', push);
 
-    child.on('error', (err) => {
-      releaseAutomationLock();
-      reject(err);
-    });
+    child.on('error', (err) => reject(err));
 
     child.on('exit', (code) => {
       killChildProcessTree(child);
-      releaseAutomationLock();
       const output = Buffer.concat(chunks).toString('utf8');
       if (code === 0) {
         resolve({ output });
@@ -62,4 +41,27 @@ export function runFixEasyposCustomerNames(apply: boolean): Promise<{ output: st
       reject(new Error(output.slice(-6000) || `Process exited with code ${code}`));
     });
   });
+}
+
+/**
+ * Runs `scripts/fixEasyposCustomerNames.ts` as a child process (spawned via `node <tsx-cli>`,
+ * not `npx`/`npm run`, to avoid Windows `spawn EINVAL` on .cmd shims — same approach as
+ * `runWdioE2e.cjs`). Resolves with the combined stdout/stderr once the process exits.
+ *
+ * Shares `common/automationLock` with the Pancake e-invoice WDIO runner — both spawn Chrome +
+ * chromedriver, and running two at once on a small server would starve both.
+ *
+ * The lock is released in a `finally` wrapping the whole run (not just inside the child's event
+ * handlers) — a prod incident showed `spawn()` can throw synchronously under resource pressure
+ * (observed: `EAGAIN` when the container couldn't fork), before any event handler was even
+ * attached, which previously left the lock stuck forever (`child.on(...)` releasing it was the
+ * only path, and it was never reached).
+ */
+export async function runFixEasyposCustomerNames(apply: boolean): Promise<{ output: string }> {
+  acquireAutomationLock('easypos-customer-names');
+  try {
+    return await runChild(apply);
+  } finally {
+    releaseAutomationLock();
+  }
 }
