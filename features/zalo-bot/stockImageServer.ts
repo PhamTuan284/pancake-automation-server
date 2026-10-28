@@ -6,6 +6,17 @@ try {
   registerFont(path.join(process.cwd(), 'fonts', 'arialbd.ttf'), { family: FONT_FAMILY, weight: 'bold' });
 } catch { /* font already registered or missing — fall back to system ${FONT_FAMILY}, sans-serif */ }
 
+const IMAGE_LOAD_TIMEOUT_MS = 8000;
+
+// loadImage() has no built-in timeout — a slow/unresponsive Pancake CDN URL can hang
+// indefinitely and stall the whole report. Race it against a timeout instead.
+function loadImageWithTimeout(url: string, timeoutMs = IMAGE_LOAD_TIMEOUT_MS): Promise<Awaited<ReturnType<typeof loadImage>>> {
+  return Promise.race([
+    loadImage(url),
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('image load timeout')), timeoutMs)),
+  ]);
+}
+
 export async function generateStockImageServer(
   displayCode: string,
   imageUrl: string | null,
@@ -19,7 +30,7 @@ export async function generateStockImageServer(
   let imgLoaded = false;
   if (imageUrl) {
     try {
-      const img = await loadImage(imageUrl);
+      const img = await loadImageWithTimeout(imageUrl);
       const iw = img.width;
       const ih = img.height;
       if (iw > 0 && ih > 0) {
