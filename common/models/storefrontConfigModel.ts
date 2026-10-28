@@ -15,14 +15,21 @@ export type ImageOverride = {
   imageUrl: string;
 };
 
+export type CostPriceOverride = {
+  id: string;
+  costPrice: number;
+};
+
 export type StorefrontConfigDoc = {
   heroBanner: HeroBannerConfig;
   categoryBanners: CategoryBannerConfig[];
   productImageOverrides: ImageOverride[];
   variantImageOverrides: ImageOverride[];
+  productCostPrices: CostPriceOverride[];
 };
 
 const imageOverrideSchema = { id: { type: String }, imageUrl: { type: String } };
+const costPriceSchema = { id: { type: String }, costPrice: { type: Number } };
 
 const storefrontConfigSchema = new mongoose.Schema<StorefrontConfigDoc>(
   {
@@ -33,6 +40,7 @@ const storefrontConfigSchema = new mongoose.Schema<StorefrontConfigDoc>(
     categoryBanners: [imageOverrideSchema],
     productImageOverrides: [imageOverrideSchema],
     variantImageOverrides: [imageOverrideSchema],
+    productCostPrices: [costPriceSchema],
   },
   { collection: 'storefront_config' }
 );
@@ -50,6 +58,7 @@ export async function getStorefrontConfig(): Promise<StorefrontConfigDoc> {
       categoryBanners: [],
       productImageOverrides: [],
       variantImageOverrides: [],
+      productCostPrices: [],
     });
   }
   return config;

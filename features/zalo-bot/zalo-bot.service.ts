@@ -47,7 +47,7 @@ function getEnvConfig() {
     botToken: process.env.ZALO_BOT_TOKEN?.trim() || null,
     chatId: process.env.ZALO_CHAT_ID?.trim() || null,
     stockChatId: process.env.ZALO_STOCK_CHAT_ID?.trim() || null,
-    revenueHour: Math.max(0, Math.min(23, parseInt(process.env.ZALO_REVENUE_HOUR ?? '21', 10) || 21)),
+    revenueHour: Math.max(0, Math.min(23, parseInt(process.env.ZALO_REVENUE_HOUR ?? '9', 10) || 9)),
     shopKey: process.env.ZALO_REPORT_SHOP?.trim() || 'meit',
     windowDays: Math.max(1, parseInt(process.env.ZALO_REPORT_DAYS ?? '7', 10) || 7),
   };
@@ -387,13 +387,14 @@ export async function dispatchRevenueReport(
 
   try {
     const vnNow = new Date(Date.now() + 7 * 3_600_000);
-    const todayVnDate = vnNow.toISOString().slice(0, 10);
+    // Report covers the day BEFORE the send day (bot now sends each morning for the prior day).
+    const targetVnDate = new Date(vnNow.getTime() - 24 * 3_600_000).toISOString().slice(0, 10);
 
     const result = await computeRevenueAnalytics({ shopKey: env.shopKey, days: 62 });
 
     const text = kind === 'monthly'
-      ? formatMonthlyRevenueText(result, todayVnDate)
-      : formatDailyRevenueText(result, todayVnDate);
+      ? formatMonthlyRevenueText(result, targetVnDate)
+      : formatDailyRevenueText(result, targetVnDate);
 
     const sendResult = await sendZaloMessage(env.botToken, env.chatId, text);
     addLog({
@@ -792,10 +793,9 @@ export function startZaloDailyScheduler(): void {
           if (settings && !settings.botEnabled.zalo) {
             console.log('[zalo-bot] Bot đang bị tắt, bỏ qua lịch gửi doanh thu.');
           } else {
-            const isLastDayOfMonth = (() => {
-              const d = new Date(vnNow.getTime() + 24 * 3_600_000);
-              return d.getUTCDate() === 1;
-            })();
+            // Report covers the prior day, so the monthly wrap-up fires when that prior
+            // day was the last of its month — i.e. today (the send day) is the 1st.
+            const isLastDayOfMonth = vnNow.getUTCDate() === 1;
             await markSentDate('zalo-revenue', vnDate);
             const dailyResult = await dispatchRevenueReport('daily');
             if (dailyResult.ok) {

@@ -122,6 +122,9 @@ export async function getAdminStorefrontConfig(_req: Request, res: Response): Pr
     res.json({
       heroBanner: config.heroBanner,
       categoryBanners: config.categoryBanners,
+      productImageOverrides: config.productImageOverrides,
+      variantImageOverrides: config.variantImageOverrides,
+      productCostPrices: config.productCostPrices,
     });
   } catch (err) {
     console.error('[storefront] getAdminStorefrontConfig error:', err);
@@ -137,6 +140,7 @@ export async function updateAdminStorefrontConfig(req: Request, res: Response): 
       categoryBanners?: { id: string; imageUrl: string }[];
       productImageOverrides?: { id: string; imageUrl: string }[];
       variantImageOverrides?: { id: string; imageUrl: string }[];
+      productCostPrices?: { id: string; costPrice: number }[];
     };
 
     let config = await StorefrontConfigModel.findOne();
@@ -146,6 +150,7 @@ export async function updateAdminStorefrontConfig(req: Request, res: Response): 
         categoryBanners: [],
         productImageOverrides: [],
         variantImageOverrides: [],
+        productCostPrices: [],
       });
     }
 
@@ -168,6 +173,11 @@ export async function updateAdminStorefrontConfig(req: Request, res: Response): 
     if (Array.isArray(body.variantImageOverrides)) {
       config.variantImageOverrides = sanitizeOverrides(body.variantImageOverrides).filter((b) => b.imageUrl !== '');
     }
+    if (Array.isArray(body.productCostPrices)) {
+      config.productCostPrices = body.productCostPrices
+        .filter((b) => typeof b.id === 'string' && Number.isFinite(b.costPrice) && b.costPrice >= 0)
+        .map((b) => ({ id: b.id.trim(), costPrice: b.costPrice }));
+    }
 
     await config.save();
     // Invalidate product cache so overrides apply on next fetch
@@ -178,6 +188,7 @@ export async function updateAdminStorefrontConfig(req: Request, res: Response): 
       categoryBanners: config.categoryBanners,
       productImageOverrides: config.productImageOverrides,
       variantImageOverrides: config.variantImageOverrides,
+      productCostPrices: config.productCostPrices,
     });
   } catch (err) {
     console.error('[storefront] updateAdminStorefrontConfig error:', err);

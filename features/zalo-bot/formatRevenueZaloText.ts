@@ -29,17 +29,17 @@ function sourceRows(day: DailyRevenue | undefined, topN = 4): string {
     .join('\n');
 }
 
-export function formatDailyRevenueText(result: RevenueAnalyticsResult, todayVnDate: string): string {
+export function formatDailyRevenueText(result: RevenueAnalyticsResult, targetVnDate: string): string {
   const { byDay } = result;
-  const today = byDay.get(todayVnDate);
-  const yesterday = byDay.get(addDays(todayVnDate, -1));
-  const lastWeek  = byDay.get(addDays(todayVnDate, -7));
+  const today = byDay.get(targetVnDate);
+  const yesterday = byDay.get(addDays(targetVnDate, -1));
+  const lastWeek  = byDay.get(addDays(targetVnDate, -7));
 
-  const [yyyy, mm, dd] = todayVnDate.split('-');
-  const header = `📈 Doanh thu hôm nay — ${dd}/${mm}/${yyyy}`;
+  const [yyyy, mm, dd] = targetVnDate.split('-');
+  const header = `📈 Doanh thu ngày hôm qua — ${dd}/${mm}/${yyyy}`;
 
   if (!today || today.orderCount === 0) {
-    return `${header}\n\nChưa có đơn hàng nào hôm nay.`;
+    return `${header}\n\nKhông có đơn hàng nào trong ngày này.`;
   }
 
   const lines: string[] = [header, ''];
@@ -47,13 +47,13 @@ export function formatDailyRevenueText(result: RevenueAnalyticsResult, todayVnDa
 
   if (yesterday && yesterday.orderCount > 0) {
     lines.push('');
-    lines.push(`So với hôm qua (${vnDateLabel(addDays(todayVnDate, -1))}):  ${yesterday.orderCount} đơn  |  ${fmtMoney(yesterday.netRevenue)}`);
+    lines.push(`So với ngày trước đó (${vnDateLabel(addDays(targetVnDate, -1))}):  ${yesterday.orderCount} đơn  |  ${fmtMoney(yesterday.netRevenue)}`);
     lines.push(`  → Đơn: ${fmtPct(today.orderCount, yesterday.orderCount)}  |  Doanh thu: ${fmtPct(today.netRevenue, yesterday.netRevenue)}`);
   }
 
   if (lastWeek && lastWeek.orderCount > 0) {
     lines.push('');
-    lines.push(`So với tuần trước (${vnDateLabel(addDays(todayVnDate, -7))}):  ${lastWeek.orderCount} đơn  |  ${fmtMoney(lastWeek.netRevenue)}`);
+    lines.push(`So với tuần trước (${vnDateLabel(addDays(targetVnDate, -7))}):  ${lastWeek.orderCount} đơn  |  ${fmtMoney(lastWeek.netRevenue)}`);
     lines.push(`  → Đơn: ${fmtPct(today.orderCount, lastWeek.orderCount)}  |  Doanh thu: ${fmtPct(today.netRevenue, lastWeek.netRevenue)}`);
   }
 
