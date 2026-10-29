@@ -2,6 +2,8 @@ node_modules/
 wdio/node_modules/
 .env
 *.log
+*.exe
+*.chromedriver
 filledInvoices.json
 wdio/features/step-definitions/pancake-login.bundled.cjs
 wdio/features/step-definitions/pancake-einvoice-automation.bundled.cjs
