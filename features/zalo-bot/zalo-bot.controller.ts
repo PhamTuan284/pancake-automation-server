@@ -10,10 +10,12 @@ import {
   sendProductStockMultiToZalo,
   sendDailyStockReport,
   sendSalesSummaryReport,
+  sendProductSalesRangeReport,
   dispatchRevenueReport,
   type ZaloProductStockPayload,
 } from './zalo-bot.service';
 import { getDailyStockConfig, saveDailyStockConfig } from './dailyStockConfig';
+import { logAudit } from '../../common/models/auditLogModel';
 import { getSalesSummaryConfig, saveSalesSummaryConfig } from './salesSummaryConfig';
 import { getAbnormalOrderConfig, saveAbnormalOrderConfig } from './abnormalOrderConfig';
 import { sendMockAbnormalOrderAlert } from './abnormalOrderAlert';
@@ -202,6 +204,30 @@ export async function postSendSalesSummaryNow(_req: Request, res: Response): Pro
     return;
   }
   res.json({ ok: true, text: result.text });
+}
+
+export async function postSendProductSalesRange(req: Request, res: Response): Promise<void> {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const productCodes = Array.isArray(body.productCodes)
+    ? body.productCodes.filter((c): c is string => typeof c === 'string')
+    : [];
+  const fromDate = typeof body.fromDate === 'string' ? body.fromDate.trim() : '';
+  const toDate = typeof body.toDate === 'string' ? body.toDate.trim() : '';
+  if (!fromDate || !toDate) {
+    res.status(400).json({ ok: false, error: 'Cần chọn ngày bắt đầu và ngày kết thúc.' });
+    return;
+  }
+  const result = await sendProductSalesRangeReport({ productCodes, fromDate, toDate });
+  if (!result.ok) {
+    res.status(400).json({ ok: false, error: result.error });
+    return;
+  }
+  logAudit(
+    req.auth!.username,
+    'send_product_sales_range',
+    `Gửi SL đã bán ${fromDate} → ${toDate}: ${productCodes.join(', ')}`
+  );
+  res.json({ ok: true, text: result.text, products: result.products });
 }
 
 export async function postSendMockAbnormalOrder(_req: Request, res: Response): Promise<void> {

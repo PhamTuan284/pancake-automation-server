@@ -34,3 +34,27 @@ export function buildSalesSummaryChunkText(chunk: SalesSummaryProduct[]): string
   }
   return blocks.join('\n─────────────────────\n');
 }
+
+/** Header for the admin "sold qty by product + date range" report: date range plus a per-code total line. */
+export function buildProductSalesRangeHeaderText(
+  fromDate: string,
+  toDate: string,
+  sold: SalesSummaryProduct[],
+  unsoldCodes: string[]
+): string {
+  const label = (ymd: string) => {
+    const [y, m, d] = ymd.split('-');
+    return `${d}/${m}/${y}`;
+  };
+  const total = sold.reduce((sum, p) => sum + p.totalQty, 0);
+  const lines = [
+    '📊 Số lượng đã bán theo mã',
+    `📅 ${label(fromDate)} → ${label(toDate)}`,
+    '━━━━━━━━━━━━━━━━━━━━━━━━',
+    ...sold.map((p) => `• ${p.productCode}: ${p.totalQty}`),
+    ...unsoldCodes.map((c) => `• ${c}: 0`),
+    '━━━━━━━━━━━━━━━━━━━━━━━━',
+    `📦 Tổng: ${total}`,
+  ];
+  return lines.join('\n');
+}

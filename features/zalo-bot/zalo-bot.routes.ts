@@ -1,5 +1,6 @@
 import express from 'express';
 import * as ctrl from './zalo-bot.controller';
+import { requireAdmin } from '../../common/auth.middleware';
 
 export const zaloRouter = express.Router();
 
@@ -57,6 +58,10 @@ zaloRouter.put('/zalo-bot/sales-summary-config', (req, res) => {
 
 zaloRouter.post('/zalo-bot/send-sales-summary', (req, res) => {
   void ctrl.postSendSalesSummaryNow(req, res);
+});
+
+zaloRouter.post('/zalo-bot/send-product-sales-range', requireAdmin, (req, res) => {
+  void ctrl.postSendProductSalesRange(req, res);
 });
 
 zaloRouter.post('/zalo-bot/send-mock-abnormal-order', (req, res) => {
