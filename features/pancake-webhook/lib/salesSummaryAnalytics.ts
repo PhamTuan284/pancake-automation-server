@@ -201,7 +201,23 @@ function collectRawLines(payload: unknown): RawLine[] {
 
 type AnalyticsEvent = { receivedAt: string; payload: unknown };
 
-async function loadOrderEvents(since: Date, shopKey?: string, until?: Date): Promise<AnalyticsEvent[]> {
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** A requested code matches the exact product code, or its tail — "0385" matches "A0385". Case-insensitive. */
+export function productCodeMatches(actualCode: string, requestedCode: string): boolean {
+  const actual = actualCode.trim().toUpperCase();
+  const requested = requestedCode.trim().toUpperCase();
+  return requested !== '' && actual.endsWith(requested);
+}
+
+async function loadOrderEvents(
+  since: Date,
+  shopKey?: string,
+  until?: Date,
+  productCodes?: string[]
+): Promise<AnalyticsEvent[]> {
   if (useMongo()) {
     try {
       await connectMongo();
@@ -210,7 +226,19 @@ async function loadOrderEvents(since: Date, shopKey?: string, until?: Date): Pro
         kind: 'orders',
         ...(shopKey ? mongoShopKeyFilter(shopKey) : {}),
       };
-      const docs = await PancakeWebhookEvent.find(filter).sort({ receivedAt: -1 }).limit(5000).lean();
+      // With a code filter, narrow in Mongo (each order gets many status webhooks, so
+      // an unfiltered 5000-doc cap only reaches back ~2 weeks) and allow a larger cap.
+      let limit = 5000;
+      if (productCodes?.length) {
+        const codeRegexes = productCodes.map((c) => new RegExp(`${escapeRegex(c)}$`, 'i'));
+        filter.$or = LINE_ARRAY_KEYS.flatMap((key) =>
+          [`payload.${key}`, `payload.data.${key}`, `payload.data.record.${key}`].map((p) => ({
+            [`${p}.variation_info.product_display_id`]: { $in: codeRegexes },
+          }))
+        );
+        limit = 50000;
+      }
+      const docs = await PancakeWebhookEvent.find(filter).sort({ receivedAt: -1 }).limit(limit).lean();
       return docs.map((doc) => ({
         receivedAt: new Date(doc.receivedAt || new Date()).toISOString(),
         payload: doc.payload,
@@ -257,7 +285,7 @@ export async function computeSalesSummaryAnalytics(options?: {
   /** Explicit VN-date range ("YYYY-MM-DD", inclusive) — overrides `days` when both are given. */
   fromDate?: string;
   toDate?: string;
-  /** Only count these product codes (product_display_id), case-insensitive. */
+  /** Only count these product codes (product_display_id) — see productCodeMatches. */
   productCodes?: string[];
 }): Promise<SalesSummaryResult> {
   let windowDays: number;
@@ -286,9 +314,7 @@ export async function computeSalesSummaryAnalytics(options?: {
     fromVnDate = isoToVnDate(new Date(from.getTime() + 7 * 3_600_000).toISOString());
     toVnDate = isoToVnDate(new Date(to.getTime() + 7 * 3_600_000).toISOString());
   }
-  const codeFilter = options?.productCodes?.length
-    ? new Set(options.productCodes.map((c) => c.trim().toUpperCase()).filter(Boolean))
-    : null;
+  const codeFilter = options?.productCodes?.map((c) => c.trim()).filter(Boolean) ?? [];
 
   // Query a wider receivedAt range than the report window: an order placed just
   // before the cutoff can still receive status-update webhooks (shipping, edits)
@@ -296,7 +322,7 @@ export async function computeSalesSummaryAnalytics(options?: {
   // by receivedAt, then decide what actually counts using each order's real
   // inserted_at date below — never receivedAt.
   const fetchSince = new Date(from.getTime() - 45 * DAY_MS);
-  const events = await loadOrderEvents(fetchSince, options?.shopKey, fetchUntil);
+  const events = await loadOrderEvents(fetchSince, options?.shopKey, fetchUntil, codeFilter);
 
   // Different Pancake shops share the same event store but have completely
   // separate variation_id spaces — restrict to this shop's catalog so stray
@@ -348,8 +374,8 @@ export async function computeSalesSummaryAnalytics(options?: {
     if (catalogIds) {
       lines = lines.filter((line) => line.variationId && catalogIds!.has(line.variationId));
     }
-    if (codeFilter) {
-      lines = lines.filter((line) => codeFilter.has(line.productCode.toUpperCase()));
+    if (codeFilter.length > 0) {
+      lines = lines.filter((line) => codeFilter.some((c) => productCodeMatches(line.productCode, c)));
     }
     if (lines.length === 0) continue;
     orderEventsUsed += 1;

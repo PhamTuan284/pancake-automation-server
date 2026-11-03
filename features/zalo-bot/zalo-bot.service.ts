@@ -12,7 +12,11 @@ import { getDailyStockConfig, saveDailyStockConfig } from './dailyStockConfig';
 import type { InvoiceShopKey } from '../pancake-einvoice/invoiceShops';
 import { generateStockImageServer, stitchIntoCompositeServer } from './stockImageServer';
 import { generateSalesImageServer } from './salesImageServer';
-import { computeSalesSummaryAnalytics, type SalesSummaryProduct } from '../pancake-webhook/lib/salesSummaryAnalytics';
+import {
+  computeSalesSummaryAnalytics,
+  productCodeMatches,
+  type SalesSummaryProduct,
+} from '../pancake-webhook/lib/salesSummaryAnalytics';
 import {
   buildSalesSummaryHeaderText,
   buildSalesSummaryChunkText,
@@ -808,8 +812,7 @@ export async function sendProductSalesRangeReport(input: {
     return { ok: false, error };
   }
 
-  const soldCodes = new Set(analytics.products.map((p) => p.productCode.toUpperCase()));
-  const unsoldCodes = codes.filter((c) => !soldCodes.has(c.toUpperCase()));
+  const unsoldCodes = codes.filter((c) => !analytics.products.some((p) => productCodeMatches(p.productCode, c)));
 
   const header = buildProductSalesRangeHeaderText(input.fromDate, input.toDate, analytics.products, unsoldCodes);
   const headerResult = await sendZaloMessage(env.botToken, env.chatId, header);
