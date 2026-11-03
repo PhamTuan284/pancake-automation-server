@@ -34,29 +34,29 @@ function trimString(value: unknown): string {
   return String(value ?? '').trim();
 }
 
+/** Pancake numeric order statuses that are not a "chốt" (confirmed) sale: 0 new, 6 canceled, 7 removed. */
+const NOT_CONFIRMED_STATUS_CODES = new Set(['0', '6', '7']);
+
+/** Mirrors Pancake's "SL hàng chốt": excludes new/canceled/removed orders; returning/returned still count. */
 function isCancelledOrder(payload: Record<string, unknown>): boolean {
-  const status = trimString(
-    payload.status ??
-      payload.state ??
-      (payload.data as Record<string, unknown> | undefined)?.status ??
-      (payload.data as Record<string, unknown> | undefined)?.state
-  ).toLowerCase();
-  return (
-    status.includes('cancel') ||
-    status.includes('return') ||
-    status.includes('refund') ||
-    status === 'deleted'
+  const data = payload.data as Record<string, unknown> | undefined;
+  const status = trimString(payload.status ?? payload.state ?? data?.status ?? data?.state).toLowerCase();
+  const statusName = trimString(payload.status_name ?? data?.status_name).toLowerCase();
+  if (NOT_CONFIRMED_STATUS_CODES.has(status)) return true;
+  return [status, statusName].some(
+    (s) => s === 'new' || s.includes('cancel') || s === 'deleted' || s === 'removed'
   );
 }
 
-/** Mirrors revenueAnalytics.ts's isoToVnDate so order dates are interpreted consistently across reports. */
+/** VN calendar date ("YYYY-MM-DD") of a timestamp. Pancake's suffix-less timestamps (inserted_at,
+ *  updated_at) are UTC — updated_at lines up with the webhook's UTC receivedAt — so treat them as UTC.
+ *  (The old "+07:00" reading shifted orders placed before 07:00 VN onto the previous day.) */
 function isoToVnDate(iso: string): string {
   try {
-    const d = new Date(iso.includes('T') && !iso.endsWith('Z') && !iso.includes('+')
-      ? iso + '+07:00'
-      : iso);
-    const vn = new Date(d.getTime() + (iso.endsWith('Z') || iso.includes('+') ? 7 * 3_600_000 : 0));
-    return vn.toISOString().slice(0, 10);
+    const hasZone = iso.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(iso);
+    const d = new Date(iso.includes('T') && !hasZone ? iso + 'Z' : iso);
+    if (Number.isNaN(d.getTime())) return '';
+    return new Date(d.getTime() + 7 * 3_600_000).toISOString().slice(0, 10);
   } catch {
     return '';
   }
@@ -311,8 +311,8 @@ export async function computeSalesSummaryAnalytics(options?: {
     windowDays = Math.max(1, Math.min(90, Number(options?.days) || 5));
     to = new Date();
     from = new Date(to.getTime() - windowDays * DAY_MS);
-    fromVnDate = isoToVnDate(new Date(from.getTime() + 7 * 3_600_000).toISOString());
-    toVnDate = isoToVnDate(new Date(to.getTime() + 7 * 3_600_000).toISOString());
+    fromVnDate = isoToVnDate(from.toISOString());
+    toVnDate = isoToVnDate(to.toISOString());
   }
   const codeFilter = options?.productCodes?.map((c) => c.trim()).filter(Boolean) ?? [];
 
