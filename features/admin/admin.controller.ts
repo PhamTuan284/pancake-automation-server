@@ -265,7 +265,8 @@ export async function getSettings(_req: Request, res: Response): Promise<void> {
     await ensureMongoConnected();
     const settings = await getAdminSettings();
     res.json({
-      tabAccess: Object.fromEntries(settings.tabAccess),
+      // Tabs added after the settings doc was first saved fall back to their default access.
+      tabAccess: { ...DEFAULT_TAB_ACCESS, ...Object.fromEntries(settings.tabAccess) },
       botEnabled: settings.botEnabled,
       officeWorkHours: settings.officeWorkHours,
       liveMinSessionMinutes: settings.liveMinSessionMinutes,

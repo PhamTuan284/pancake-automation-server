@@ -25,6 +25,7 @@ export const DEFAULT_TAB_ACCESS: Record<string, string[]> = {
   'pancake-einvoice-dpa': ['Accountant'],
   'pancake-webhook': [],
   leave: ['*'],
+  tasks: ['*'],
   'zalo-bot': [],
   'admin-storefront': [],
   'team-metrics': [],
