@@ -29,6 +29,7 @@ export const DEFAULT_TAB_ACCESS: Record<string, string[]> = {
   'zalo-bot': [],
   'admin-storefront': [],
   'team-metrics': [],
+  payroll: ['Accountant'],
 };
 
 export const DEFAULT_OFFICE_WORK_HOURS: OfficeWorkHours = {
